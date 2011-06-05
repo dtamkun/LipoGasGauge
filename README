@@ -1,0 +1,124 @@
+This code is for a "Gas Gauge" type display for a LiPo battery.  It's based on a sample by
+J.C. Woltz and is for the Maxim DS2764_025 Lipo Protector Chip.
+
+Originally this started out using a 20x4 LCD using a HD44780 driver.  Recently I changed
+the diplay to use a Nokia LCD driven by a PCD8544 driver chip purchased from Adafruit.
+
+There is still old code to be cleaned up, so this is still very much a work in progress.
+
+Header from the main code is below:
+
+//-----------------------------------------------------------------------
+// $Id: LipoGasGauge.pde 61 2011-06-05 01:32:41Z davidtamkun $
+//-----------------------------------------------------------------------
+//         Program: Lipo Gas Gauge
+//         $Author: davidtamkun $
+//           $Date: 2011-06-04 18:32:41 -0700 (Sat, 04 Jun 2011) $
+//            $Rev: 61 $
+//
+// Source/Based On: Sample App by J.C. Woltz
+//
+//         History: DMT 02/22/2011 Created Original Version
+//                  DMT 02/23/2011 v1.1.0 LCD to use i2c
+//                  DMT 02/26/2011 V1.1.1 LCD using SPI.  Unable to get Log Shield Working
+//                  DMT ??/??/2011 V1.2.0 
+//                  DMT 03/31/2011 V1.3.0 Attempting to get Log Shield Working
+//                  DMT 05/15/2011 V1.4.0 Giving up on Logging Shield for now.
+//                                        Renamed file to LipoGasGauge.pde and
+//                                        will keep under SVN going forward.
+//                                        Added SVN Header Info and code
+//                                        to display SVN Info
+//                  DMT 05/28/2011 V1.4.0 Rev 46, 50 - still trying to get to work with
+//                                        Nokia LCD.  Still having problems.  Rev 50
+//                                        Working again with BIG LCD.
+//                  DMT 05/30/2011 V1.5.0 Got this code working with Nokia Display on the
+//                                        Mega and added % of Battery Capacity on the 20x4 LCD
+//                  DMT 05/30/2011 V1.5.1 Confirmed that the Nokia LCD display now works on the
+//                                        Uno.
+//                  DMT 05/31/2011 V1.5.2 Corrected Nokia LCD display if current flow was
+//                                        more than 5 characters.
+//                  DMT 06/04/2011 V1.5.3 Enabled Gas Gauge Sleep Mode and Power Switch On/Off
+//                                        code works, but needs improvement.
+//
+//    Compiliation: Arduino IDE
+//
+//        Hardware: Arduino Uno - ATMEGA328P-PU - 16Mhz
+//
+//      Components: Gas Gauge on Proto Board with: 
+//                       Maxim DS2764+025 Lipo Protector Chip
+//                            i2C Slave Address 0x34
+//
+//                  HD44780 Character 20x4 LCD (White on Blue)
+//                  LCD Backback from Adafruit
+//                  -- OR --
+//                  Nokia LCD Display using PCD8544 driver chip
+//
+//                  NOT WORKING YET!! Data Logging Shield from Adafruit
+//
+//                
+//       Libraries: Wire/Liquid Crystal for LCD Display
+//                  PCD8544 if using Nokia Display
+//                  SdFat & RTClib for Data Logging Shield
+//
+//
+//   Communication: Uses i2C for RTC and Gas Gauge
+//                       SPI for LCD, Nokia LCD, & SD Card
+//
+//         Voltage: 5 Volts OK
+//
+//          Status: Experimental      <=========
+//                  Work in Progress
+//                  Stable
+//                  Complete
+//
+//          Wiring: LCD Backback from Adafruit
+//                  ---------------------------------------------------
+//                  SPI LCDBpck    Arduino
+//                  -----------    -------
+//                  GRN LATCH      D4      SPI Latch
+//                  YEL DATA       D3      SPI Data
+//                  ORN CLK        D2      SPI Clock
+//                  RED +5V        +5v
+//                  BLK GND        GND
+//
+//
+//                  Dave's LCD Backpack for Nokia LCD Display - PCD8544
+//                  ---------------------------------------------------
+//                  MyBkpk         Arduino         Device
+//                  Color          Pin             Pin
+//                  ------         -------         ------
+//                  Brown          GND             GND
+//                  Red            +5V             VCC & Bklight LED
+//                  Orange         D3              RST*
+//                  Yellow         D4              CS*
+//                  Green          D5              D/C*
+//                  Blue           D6              DIN*
+//                  Purple         D7              SCLK*
+//                                                 * Level shifted
+//
+//
+//                  Gas Gauge Chip Proto Board - Maxim DS2764+025
+//                  ---------------------------------------------------
+//                  Shield         Arduino
+//                  -----------    -------
+//                  GND            GND     Ground
+//                  DATA Yellow    A4      i2C Data    (pin 20 on Mega)
+//                  CLK  Orange    A5      i2C Clock   (pin 21 on Mega)
+//                  
+//-----------------------------------------------------------------------
+/////////////////////////////////////////////////////////////////////
+// Example Test application for the Maxim DS2764 IC. 
+// A LiPo protection IC
+/////////////////////////////////////////////////////////////////////
+// J.C. Woltz 2010.11.15
+/////////////////////////////////////////////////////////////////////
+// This work is licensed under the Creative Commons 
+// Attribution-ShareAlike 3.0 Unported License. To view a copy of 
+// this license, visit http://creativecommons.org/licenses/by-sa/3.0/
+// or send a letter to 
+// Creative Commons, 
+// 171 Second Street, 
+// Suite 300, 
+// San Francisco, California, 94105, USA.
+/////////////////////////////////////////////////////////////////////
+
