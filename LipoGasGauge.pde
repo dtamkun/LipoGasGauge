@@ -29,6 +29,7 @@
 //                                        more than 5 characters.
 //                  DMT 06/04/2011 V1.5.3 Enabled Gas Gauge Sleep Mode and Power Switch On/Off
 //                                        code works, but needs improvement.
+//                                        Minor change, playing with git vs svn.
 //
 //    Compiliation: Arduino IDE
 //
