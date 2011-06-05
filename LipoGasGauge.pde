@@ -1,10 +1,10 @@
 //-----------------------------------------------------------------------
-// $Id: LipoGasGauge.pde 61 2011-06-05 01:32:41Z davidtamkun $
+// $Id: LipoGasGauge.pde 65 2011-06-05 07:23:22Z davidtamkun $
 //-----------------------------------------------------------------------
 //         Program: Lipo Gas Gauge
 //         $Author: davidtamkun $
-//           $Date: 2011-06-04 18:32:41 -0700 (Sat, 04 Jun 2011) $
-//            $Rev: 61 $
+//           $Date: 2011-06-05 00:23:22 -0700 (Sun, 05 Jun 2011) $
+//            $Rev: 65 $
 //
 // Source/Based On: Sample App by J.C. Woltz
 //
@@ -30,6 +30,7 @@
 //                  DMT 06/04/2011 V1.5.3 Enabled Gas Gauge Sleep Mode and Power Switch On/Off
 //                                        code works, but needs improvement.
 //                                        Minor change, playing with git vs svn.
+//                                        -- git / svn test - mod in Arduino_git --
 //
 //    Compiliation: Arduino IDE
 //
@@ -233,9 +234,9 @@
 //** Declare Global Variables
 //******************************************************************************
 //-- Declare Variables for Displaying Version Info
-const char IDSTR[]                 = "$Id: LipoGasGauge.pde 61 2011-06-05 01:32:41Z davidtamkun $";
-const char DATESTR[]               = "$Date: 2011-06-04 18:32:41 -0700 (Sat, 04 Jun 2011) $";
-const char REVSTR[]                = "$Rev: 61 $";
+const char IDSTR[]                 = "$Id: LipoGasGauge.pde 65 2011-06-05 07:23:22Z davidtamkun $";
+const char DATESTR[]               = "$Date: 2011-06-05 00:23:22 -0700 (Sun, 05 Jun 2011) $";
+const char REVSTR[]                = "$Rev: 65 $";
       char gszLineBuf[LINEBUFSIZE];
       char gszDateStr[DATEBUFSIZE];
       char gszRevStr [REVISIONBUFSIZE];
@@ -1587,9 +1588,9 @@ void fillBuffer(char* aszBuff, int aiSize, char acChar) {
 // Also, these global variables must be declared, with the constants being set to the 
 // values of SVN property strings as shown.
 //
-// const char IDSTR[]                 = "$Id: LipoGasGauge.pde 61 2011-06-05 01:32:41Z davidtamkun $";
-// const char DATESTR[]               = "$Date: 2011-06-04 18:32:41 -0700 (Sat, 04 Jun 2011) $";
-// const char REVSTR[]                = "$Rev: 61 $";
+// const char IDSTR[]                 = "$Id: LipoGasGauge.pde 65 2011-06-05 07:23:22Z davidtamkun $";
+// const char DATESTR[]               = "$Date: 2011-06-05 00:23:22 -0700 (Sun, 05 Jun 2011) $";
+// const char REVSTR[]                = "$Rev: 65 $";
 //    char gszDateStr[NUMCOLS + 1];
 //    char gszRevStr [NUMCOLS + 1];
 //    char gszLineBuf[NUMCOLS + 1];
