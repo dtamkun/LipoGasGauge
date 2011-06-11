@@ -34,6 +34,8 @@
 //                                        you can now set/reset the battery capacity and
 //                                        accumulated current (gas level) from a menu
 //                                        on the Serial Monitor.
+//                  DMT 06/11/2011 V1.6.2 Added the capability to turn sleep mode on and
+//                                        off from the serial menu.
 //
 //    Compiliation: Arduino IDE
 //
@@ -122,7 +124,8 @@
 //******************************************************************************
 //** Define Options
 //******************************************************************************
-//#define DEBUG          1    // Uncomment to display addl diagnostic msgs on the Serial Monitor
+#define DEBUG          2    // Uncomment to display addl diagnostic msgs on the Serial Monitor
+#define SKIPIT         1
 #define SMALL_LCD      1      //Use 16x2 LCD - not really big enough to use
 #define BIG_LCD        2      //Use 20x4 LCD
 #define NOKIA_LCD      3      //Use 13x5 Nokia LCD Display - 84x48 pixels
@@ -153,8 +156,8 @@
 
 #else
 // Define these anyway so our buffers are defined
-#define NUMCOLS        13
-#define NUMROWS        5
+#define NUMCOLS        20
+#define NUMROWS        1
 #define LINEBUFSIZE    NUMCOLS + 1
 #endif
 
@@ -162,7 +165,7 @@
 //                                    1   2
 //                     12345678901234567890
 #define APP_NAME      "LipoGasGauge" 
-#define APP_VER       "v 1.6.0"
+#define APP_VER       "v 1.6.2"
 
 // String Buffer Sizes
 #define FLOATBUFSIZE        10    // size for buffer string to contain character equivalents of floating point numbers
@@ -200,6 +203,7 @@
 #define DS00DC        0x04
 #define DS00CE        0x02
 #define DS00DE        0x01
+#define DS00SLP       0x20    // Status of Sleep Enable bit in bit 5 of the Status Register
 
 //******************************************************************************
 //** Include Library Code
@@ -237,9 +241,10 @@
 //** Declare Global Variables
 //******************************************************************************
 //-- Declare Variables for Displaying Version Info
-const char IDSTR[]                 = "$Id: LipoGasGauge.pde 74 2011-06-06 04:53:50Z davidtamkun $";
-const char DATESTR[]               = "$Date: 2011-06-05 21:53:50 -0700 (Sun, 05 Jun 2011) $";
-const char REVSTR[]                = "$Rev: 74 $";
+const char IDSTR[]          = "$Id: LipoGasGauge.pde 74 2011-06-06 04:53:50Z davidtamkun $";
+const char DATESTR[]        = "$Date: 2011-06-05 21:53:50 -0700 (Sun, 05 Jun 2011) $";
+const char REVSTR[]         = "$Rev: 74 $";
+
       char gszLineBuf[LINEBUFSIZE];
       char gszDateStr[DATEBUFSIZE];
       char gszRevStr [REVISIONBUFSIZE];
@@ -266,8 +271,11 @@ const char helpText[]PROGMEM =
     "  <nnnn> a   - Sets the Accumulated Current to the specified number" "\n"
     "               of mAH.  Entering '1200 a' sets the battery level to" "\n"
     "               1200 mAh." "\n"
+    "     <n> s   - Turn Sleep Mode ON or OFF.  Entering '1 s' Enables Sleep Mode" "\n"
+    "               while '0 s' disables Sleep Mode" "\n"
     "  <nnnn> o   - Sets the current offset -- NOT IMPLEMENTED!" "\n"
     "         d   - Displays current info" "\n"
+    "         h   - Redisplays this menu" "\n"
     "         x   - Clears Input Buffer" "\n"
 ;
 
@@ -350,13 +358,15 @@ uint8_t degree[8]  = {140,146,146,140,128,128,128,128};
 void setup() { 
     Serial.begin(9600);          // start serial communication at 9600bps
     delay(500);
-
+    
+#ifdef DEBUG
     Serial.println();
-    //Serial.println("+-------------------------------------------------------+");
-    //Serial.println("+-------------------------------------------------------+");
-    //Serial.println("+-- Start of Program                                  --+");
-    //Serial.println("+-------------------------------------------------------+");
-    //Serial.println("+-------------------------------------------------------+");
+    Serial.println("+-------------------------------------------------------+");
+    Serial.println("+-------------------------------------------------------+");
+    Serial.println("+-- Start of Program                                  --+");
+    Serial.println("+-------------------------------------------------------+");
+    Serial.println("+-------------------------------------------------------+");
+#endif
 
     fillBuffer(gszDateStr, DATEBUFSIZE,     '\0');
     fillBuffer(gszRevStr,  REVISIONBUFSIZE, '\0');
@@ -365,7 +375,7 @@ void setup() {
     fillBuffer(gszCurrBuf, CURRENTBUFSIZE,  '\0');
     fillBuffer(gszVoltBuf, VOLTBUFSIZE, '\0');
     //fillBuffer(gszLogBuff, LOGBUFSIZE,      '\0');
-    
+
 //#if  DISPLAY_TYPE == SMALL_LCD || DISPLAY_TYPE == BIG_LCD 
 //        Serial.println("LCD is selected");
 //#elif DISPLAY_TYPE == NOKIA_LCD
@@ -373,7 +383,7 @@ void setup() {
 //#else
 //        Serial.println("Some other display or no display selected");
 //#endif
-    
+
     Serial.println(IDSTR);
     format_svn_info();
     Serial.println(APP_NAME);
@@ -431,7 +441,7 @@ void setup() {
     
     // Print a message to the LCD and delay as needed
     display_app_version_info();
-    
+
 
     //char name[13] = "BATGAS00.CSV";
     
@@ -508,12 +518,7 @@ void loop() {
     gdCurrent    = 0.0;
     giAccCurrent = 0;
     gfTempC      = 0.0;
-    
-    if(giDoIt) {
-        setSleepMode(1);
-        giDoIt = 0;  
-    }
-    
+        
     if (getdsPowerSwitch() == 0 && giPowerOn == 1) {
         // power down
         giPowerOn = 0;
@@ -709,8 +714,14 @@ int getdsProtection(void) {
 
         giProtect = dsProtect;
         giStatus  = dsStatus;
+        
+        Serial.println("from getdsProtection");
+        Serial.print("Status Register from Address 01h: ");
+        Serial.println(dsStatus, HEX);
+        Serial.print("     Status Register in giStatus: ");
+        Serial.println(giStatus, HEX);
 
-        /*
+#ifdef DEBUG && (DEBUG > 1)
         if (!dsProtect & (DS00OV + DS00UV)) {
           Serial.println("      Voltage: OK");
         }
@@ -764,13 +775,13 @@ int getdsProtection(void) {
             Serial.println("    Discharging: Disabled");
         }
         
-        if (dsStatus & 32) { 
+        if (dsStatus & DS00SLP) { 
             Serial.println("     Sleep mode: Enabled");
         }
         else {
             Serial.println("     Sleep mode: Disabled");
         }
-        */
+#endif
     }
     else {
         //Serial.println("Nothing Received from Get Protection Settings Request");
@@ -779,6 +790,10 @@ int getdsProtection(void) {
 
     }
 
+    Serial.print("dsStatus & DS00SLP: ");
+    Serial.print(dsStatus, HEX);
+    Serial.print(" ");
+    Serial.println(DS00SLP, HEX);
     return dsProtect;
 }
 
@@ -884,7 +899,7 @@ float getdsVoltage(void) {
 //------------------------------------------------------------------------------
 int getdsPowerSwitch(void) {
     int dsSpecial  = 0;
-        int iReturn    = -1;
+    int iReturn    = -1;
     //int dsStatus   = 0;
 
     // Read Protection Register
@@ -943,7 +958,7 @@ int getdsPowerSwitch(void) {
 //------------------------------------------------------------------------------
 int setdsPowerSwitchOn(void) {
     int dsSpecial  = 0;
-        int iReturn    = -1;
+    int iReturn    = -1;
 
     // Read Protection Register
     Wire.beginTransmission(dsAddress);
@@ -1125,6 +1140,12 @@ int setBatCapacity(int aiValue) {
 //
 // Sets the default value for sleep mode on or off depending on the value
 // passed in.
+//
+// The setting for Sleep Mode is set in EEPROM Block 1 in the 5th bit of 
+// address 31h.
+//
+// The effective setting for Sleep Mode is in the Status Register, bit 5
+// of address 01h, but this bit is read-only.
 // 
 //
 // Arguments:
@@ -1160,17 +1181,39 @@ int setSleepMode(int aiValue) {
 
     if(1 <= Wire.available()) { 
         iShadow = Wire.receive();
-        //Serial.print("Block 1 Byte 1: ");
-        //Serial.println(iShadow, HEX);
+        Serial.print("BEFORE Address 31h, Shadow Block 1 Byte 1: ");
+        Serial.println(iShadow, HEX);
+        
+        Serial.print("BEFORE giStatus Variable from Address 02h: ");
+        Serial.println(giStatus, HEX);
         }
     else {
-        Serial.println("NOData Power Bit");
+        Serial.println("NOData on Sleep Bit");
     }
 
     // set data
-    iShadow = iShadow | 0x20;  // This ensures bit 5 is set and nothing else is changed.
-    //Serial.print("About to send: ");
-    //Serial.println(iShadow, HEX);
+    if(aiValue > 0) {
+        Serial.print("BEFORE Shadow OR 0x20: ");
+        Serial.print(iShadow, HEX);
+        Serial.print(" | ");
+        Serial.println(DS00SLP, HEX);
+        iShadow = iShadow | DS00SLP;  // This ensures bit 5 is set and nothing else is changed.
+    }
+    else {
+        Serial.print("BEFORE Shadow XOR 0x20: ");
+        Serial.print(iShadow, HEX);
+        Serial.print(" ^ ");
+        Serial.println(DS00SLP, HEX);
+        iShadow = iShadow ^ DS00SLP;  // this flips bit 5 to 0 if it was 1, which ensure sleep mode is disabled   
+    }
+    
+    Serial.print("AFTER, value to send      : ");
+    Serial.println(iShadow, HEX);
+    
+//#ifdef DEBUG
+//    Serial.print("Setting Sleep Mode - about to send: ");
+//    Serial.println(iShadow, HEX);
+//#endif
         
     Wire.beginTransmission(dsAddress);
     Wire.send(0x31);
@@ -1184,7 +1227,46 @@ int setSleepMode(int aiValue) {
     Wire.send(0xFE);        // Write value to Function Command Address
     Wire.send(0x44);        // Request Write of Block 1 Shadow RAM back into EEPROM
     Wire.endTransmission();
-    delay(10);
+    delay(1000);
+    
+    // now, that we've updated the EEPROM memory, lets request a refresh of the shadow memory.
+    // do another EEPROM refresh.
+    
+    // Recall EEPROM Block 1 Data to Shadow RAM
+    Wire.beginTransmission(dsAddress);
+    Wire.send(0xFE);          // Write value to Function Command Address
+    Wire.send(0xB4);          // Request refresh of Block 1 Shadow RAM from EEPROM
+    Wire.endTransmission();
+    delay(1000);
+        
+        
+    // Read second byte of Block 1 Shadow RAM
+    Wire.beginTransmission(dsAddress);
+    Wire.send(0x31);
+    Wire.endTransmission();
+    delay(100);
+    Wire.requestFrom(dsAddress, 1);
+
+    if(1 <= Wire.available()) { 
+        iShadow = Wire.receive();
+        Serial.print("Address 31h - Shadow After Update and Refresh Block 1 Byte 1: ");
+        Serial.println(iShadow, HEX);
+        }
+    else {
+        Serial.println("NOData on Sleep Bit");
+    }
+    
+    if((iShadow & DS00SLP) > 0) {
+        iReturn = 1;
+    }
+    else {
+        iReturn = 0;
+    }
+
+#ifdef DEBUG
+    Serial.print("Sleep Mode now set to ");
+    Serial.println(iReturn, DEC);
+#endif
         
     return iReturn;
 }
@@ -1223,6 +1305,11 @@ int resetdsProtection(int aiOn) {
     { 
         dsProtect = Wire.receive();
         dsStatus = Wire.receive();
+        
+        giProtect = dsProtect;
+        giStatus  = dsStatus;
+        
+        Serial.println(dsStatus, HEX);
 
     }
     else {
@@ -1500,9 +1587,7 @@ void DisplayData(int iProtect, int iStatus, int iVolts, double dCurrent, int iAc
     pstrLine.format("%6smA%5sV%4dmAh %5s%%Voltage     %2sCharge  %3s %2sDcharge %3s %2sTemp:  %5s F", 
                     gszCurrBuf, gszVoltBuf, iAccCurrent, gszPctBuf, szVoltStat, szChrgOn, szChrgStat, szDChrgOn, szDChrgStat, gszTempBuf);
     nokia.drawstring(0, 0, gszLineBuf);
-#ifdef DEBUG    
-    Serial.println(gszLineBuf);
-#endif
+    //Serial.println(gszLineBuf);
     
     if (!(iProtect & DS00CE)) {
         // Charging is disabled 
@@ -1519,126 +1604,14 @@ void DisplayData(int iProtect, int iStatus, int iVolts, double dCurrent, int iAc
     nokia.drawbitmap(72, 40, degree_bmp, 5, 8, BLACK);
     
     nokia.display();
+    
 #else
-    // Nokia LCD Lines
-    //         1  1
-    //1234567890123
-    //-0.6mA  77.7o
-    //2180mAh 99.9%
-    //Voltage    OK
-    //Charging   OK
-    //Discharge  OK
-    
-    Serial.println("In Display Data with no Display Defined");
-    delay(2000);
-        
-    
-    // Line 0 - print current and temp
-    //          1 1
-    //0123456789012
-    //-0.6mA  77.7o
-    //222.1mA 100.2
-    //Serial.println(":1234567890123:");
-    
-    //1234567890123
-    //999.9mA101.7o
-    //-999.9mA101.7
-    pstrTemp.print(fTempF, 1);
-    pstrCurrent.print(dCurrent, 1);
-    Serial.print(pstrCurrent);
-    Serial.print("mA ");
-    Serial.print(pstrTemp);
-    Serial.println(" degrees F");
 
-            
-    // Line 1 - print Accumulated current and eventually charge percent
-    //          1 1
-    //0123456789012
-    //2180mAh 99.9%
-    //**pstrLine.begin();
-    //**pstrFloat.begin();
-    //pstrLine.print(iAccCurrent);
-    //pstrLine.print("mAh");
-    //Serial.println(pstrLine);
-    //**Serial.print(":");
-    //**Serial.print(gszLineBuf);
-    // TODO, calculate battery percent
-    //nokia.drawstring(8, 1, "??.?%");
-    //**Serial.println(":");
-    
-    
-    // Line 2 - Print Battery Voltage and HI/LO/OK Status
-    //          1 1
-    //0123456789012
-    //1234mV     OK
-    //**pstrLine.begin();
-    //**pstrFloat.begin();
-    //**pstrLine.print(iVolts);
-    //**pstrLine.print("mV");
-    //**Serial.print(":");
-    //**Serial.print(gszLineBuf);
-    Serial.print(iVolts);
-    Serial.print("mV ");
-    
-    if (iProtect & DS00OV) { 
-        Serial.print("HI"); 
-    }
-    else if (iProtect & DS00UV) { 
-         Serial.print("LO");    
-    }
-    else {
-         Serial.print("Ok"); 
-    }
-    Serial.println();
-
-    
-    // Line 3 - Print Charging Current Status
-    //          1 1
-    //0123456789012
-    //Charging   OK
-    
-    //**pstrLine.begin();
-    //**pstrFloat.begin();
-    //**Serial.print(":");
-    Serial.print("Charging ");
-    
-    if (iProtect & DS00COC) {
-        // charge current is over the threshold 
-        Serial.print("HI"); 
-    }
-    else {
-        Serial.print("Ok"); 
-    }     
-    
-    if (iProtect & DS00CC) {
-        // Charging is disabled 
-        Serial.print(" DISABLED"); 
-    }
-    Serial.println();
- 
- 
-    // Line 4 - Print Discarge Current Status
-    //          1 1
-    //0123456789012
-    //Discharge  OK
-    //**pstrLine.begin();
-    //**pstrFloat.begin();
-    //**Serial.print(":");
-    Serial.print("Discharge ");
-    
-    if (iProtect & DS00DOC) {
-        // discharge current is over the threshold 
-        Serial.print("HI"); 
-    }
-    else {
-        Serial.print("Ok"); 
-    }     
-    
-    if (iProtect & DS00DC) {
-        // Charging is disabled 
-        Serial.print(" DISABLED"); 
-    }
-    Serial.println();
+    pstrLine.begin();
+    pstrLine.format("%6smA  %5sV  %4dmAh  %5s%%  Voltage %2s  Charge %3s %2s  Dcharge %3s %2s  Temp: %5s F", 
+                    gszCurrBuf, gszVoltBuf, iAccCurrent, gszPctBuf, szVoltStat, szChrgOn, szChrgStat, szDChrgOn, szDChrgStat, gszTempBuf);
+                    
+    Serial.println(gszLineBuf);
     
 #endif
 
@@ -1675,7 +1648,6 @@ void setAccumCurrent(int iNewVal) {
     Wire.endTransmission();
 
 }
-
 
 
 
@@ -1878,6 +1850,7 @@ void drawstringCentered(int aiRow, char* aszBuff) {
 
 
 
+
 //------------------------------------------------------------------------------
 // display_app_version_info
 //
@@ -2024,10 +1997,25 @@ static void handleInput (char c) {
              
                 giInputVal = 0;
                 break;
+            case 's': // Set Sleep Mode On or Off
+                Serial.print("Sleep Mode is currently ");
+                Serial.println(giStatus, HEX);
+                Serial.print("Setting Sleep Mode to ");
+                Serial.println(giInputVal, HEX);
+                
+                Serial.print("Sleep mode is now set to ");
+                Serial.println(setSleepMode(giInputVal), HEX);
+                
+                giInputVal = 0;
+                break;
+                
             case 'o': // This will be a place to set the Current Offset.
                 giInputVal = 0;
                 break;
             case 'd': // display giInputVal
+                // retrieve protection and status settings again
+                getdsProtection();
+                delay(100);
                 Serial.println("Current Values:");
                 Serial.print  ("                 Volts: ");
                 Serial.println(giVolts, DEC);
@@ -2042,8 +2030,21 @@ static void handleInput (char c) {
                 Serial.println(giPowerOn, DEC);
                 Serial.print  ("      Battery Capacity: ");
                 Serial.println(giBatCap, DEC);
-                Serial.print("    Numeric Input Buffer: ");
+                Serial.print  ("            Sleep Mode: ");
+                //Serial.println(giStatus, HEX);
+                if(giStatus & DS00SLP > 0) {
+                    //Serial.println(1, DEC);
+                    Serial.println("Enabled");
+                }
+                else {
+                    //Serial.println(0, DEC);
+                    Serial.println("Disabled");
+                }
+                Serial.print  ("  Numeric Input Buffer: ");
                 Serial.println(giInputVal, DEC);
+                break;
+            case 'h': // display menu again
+                showHelp();
                 break;
             case 'x': // clear out giInputVal without running a command.
                 giInputVal = 0;
