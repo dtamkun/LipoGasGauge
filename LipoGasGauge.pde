@@ -1,10 +1,10 @@
 //-----------------------------------------------------------------------
-// $Id: LipoGasGauge.pde 74 2011-06-06 04:53:50Z davidtamkun $
+// $Id: LipoGasGauge.pde 75 2011-06-11 17:04:28Z davidtamkun $
 //-----------------------------------------------------------------------
 //         Program: Lipo Gas Gauge
 //         $Author: davidtamkun $
-//           $Date: 2011-06-05 21:53:50 -0700 (Sun, 05 Jun 2011) $
-//            $Rev: 74 $
+//           $Date: 2011-06-11 10:04:28 -0700 (Sat, 11 Jun 2011) $
+//            $Rev: 75 $
 //
 // Source/Based On: Sample App by J.C. Woltz
 //
@@ -124,7 +124,8 @@
 //******************************************************************************
 //** Define Options
 //******************************************************************************
-#define DEBUG          2    // Uncomment to display addl diagnostic msgs on the Serial Monitor
+//#define DEBUG          2    // Uncomment to display addl diagnostic msgs on the Serial Monitor
+//#define DISP_VERSION   1
 #define SKIPIT         1
 #define SMALL_LCD      1      //Use 16x2 LCD - not really big enough to use
 #define BIG_LCD        2      //Use 20x4 LCD
@@ -162,10 +163,13 @@
 #endif
 
 
+#ifdef DISP_VERSION
 //                                    1   2
 //                     12345678901234567890
 #define APP_NAME      "LipoGasGauge" 
 #define APP_VER       "v 1.6.2"
+#endif
+
 
 // String Buffer Sizes
 #define FLOATBUFSIZE        10    // size for buffer string to contain character equivalents of floating point numbers
@@ -178,41 +182,15 @@
 #define VOLTBUFSIZE         FLOATBUFSIZE + 1
 
 
-//#define USE_SD_LEDS    1    // Define to use LEDs on DL Shield to indicate SD card activity
-#define ECHO_TO_SERIAL   1    // echo data to serial port
-#define WAIT_TO_START    0    // Wait for serial input in setup()
-#define LOG_INTERVAL  1000    // mills between entries
-#define SYNC_INTERVAL 1000    // mills between calls to sync()
 
-
-
-#ifdef USE_SD_LEDS
-// the digital pins that connect to the LEDs
-#define redLEDpin     6
-#define greenLEDpin   7
-#endif
-
-
-//Flags for Gas Gauge Settings
-#define DS00PS        0x80      // status of Power Switch bit in the Special Features Register
-#define DS00OV        0x80
-#define DS00UV        0x40
-#define DS00COC       0x20
-#define DS00DOC       0x10
-#define DS00CC        0x08
-#define DS00DC        0x04
-#define DS00CE        0x02
-#define DS00DE        0x01
-#define DS00SLP       0x20    // Status of Sleep Enable bit in bit 5 of the Status Register
 
 //******************************************************************************
 //** Include Library Code
 //******************************************************************************
-//#include <SdFat.h>
-//#include <SdFatUtil.h>
 #include <avr/pgmspace.h>   // needed for PROGMEM
 #include <PString.h>
 #include <Wire.h>           // required for I2C communication with Gas Gauge
+#include "DS2764.h"
 
 #if DISPLAY_TYPE == SMALL_LCD || DISPLAY_TYPE == BIG_LCD
 #include <LiquidCrystal.h>
@@ -220,11 +198,6 @@
 #include "PCD8544.h"
 #endif
 
-#if USE_LOGGER
-#include <RTClib.h>
-#endif
-
-//#include <string.h>
 
 
 
@@ -241,13 +214,15 @@
 //** Declare Global Variables
 //******************************************************************************
 //-- Declare Variables for Displaying Version Info
-const char IDSTR[]          = "$Id: LipoGasGauge.pde 74 2011-06-06 04:53:50Z davidtamkun $";
-const char DATESTR[]        = "$Date: 2011-06-05 21:53:50 -0700 (Sun, 05 Jun 2011) $";
-const char REVSTR[]         = "$Rev: 74 $";
-
-      char gszLineBuf[LINEBUFSIZE];
+#ifdef DISP_VERSION
+const char IDSTR[]          = "$Id: LipoGasGauge.pde 75 2011-06-11 17:04:28Z davidtamkun $";
+const char DATESTR[]        = "$Date: 2011-06-11 10:04:28 -0700 (Sat, 11 Jun 2011) $";
+const char REVSTR[]         = "$Rev: 75 $";
       char gszDateStr[DATEBUFSIZE];
       char gszRevStr [REVISIONBUFSIZE];
+#endif
+
+      char gszLineBuf[LINEBUFSIZE];
       char gszTempBuf[TEMPBUFSIZE];
       char gszCurrBuf[CURRENTBUFSIZE];
       char gszPctBuf[TEMPBUFSIZE];
@@ -280,35 +255,10 @@ const char helpText[]PROGMEM =
 ;
 
 
-uint32_t syncTime   = 0; // time of last sync()
-int    dsAddress    = 0x34;
-int    reading      = 0; 
-int    giProtect    = 0;
-int    giStatus     = 0;
-int    giVolts      = 0;
-double gdCurrent    = 0.0;
-int    giAccCurrent = 0;
-float  gfTempC      = 0.0;
+DS2764 gasGauge = DS2764();
 int    giDoIt       = 0;
-int    giPowerOn    = 1;
-int    giBatCap     = 0;
 int    giInputVal   = 0;
 
-//char   gszLineBuf[NUMCOLS     + 1];
-//char   gszLogBuff[LOGBUFSIZE];
-//int    giCardOk     = 1;
-
-
-#if USE_LOGGER
-RTC_DS1307 RTC;                                  // define the Real Time Clock object
-DateTime dtNow;
-
-// The objects to talk to the SD card
-//Sd2Card   card;
-//SdVolume  volume;
-//SdFile    root;
-//SdFile    file;
-#endif
 
 
 
@@ -321,7 +271,11 @@ DateTime dtNow;
 //LiquidCrystal lcd(0);
 
 // Connect via SPI. Data pin is #3, Clock is #2 and Latch is #4
+// make degree symbol for LCD
+uint8_t degree[8]  = {140,146,146,140,128,128,128,128};
+
 LiquidCrystal lcd(3, 2, 4);
+
 #elif DISPLAY_TYPE == NOKIA_LCD
 //
 //PCD8544(int8_t SCLK, int8_t DIN, int8_t DC, int8_t CS, int8_t RST)
@@ -332,16 +286,29 @@ PCD8544 nokia = PCD8544(7, 6, 5, 4, 3);
 
 
 
-// make degree symbol for LCD
-uint8_t degree[8]  = {140,146,146,140,128,128,128,128};
 
 
+// variables created by the build process when compiling the sketch
+extern int __bss_end;
+extern void *__brkval;
 
 
 
 //******************************************************************************
 //** Start Main Logic
 //******************************************************************************
+
+// function to return the amount of free RAM
+int memoryFree() {
+    int freeValue;
+
+    if((int)__brkval == 0)
+        freeValue = ((int)&freeValue) - ((int)&__bss_end);
+    else
+        freeValue = ((int)&freeValue) - ((int)__brkval);
+        
+    return freeValue;
+}
 
 //------------------------------------------------------------------------------
 // setup
@@ -359,6 +326,9 @@ void setup() {
     Serial.begin(9600);          // start serial communication at 9600bps
     delay(500);
     
+    Serial.print("Free Memory: ");
+    Serial.println(memoryFree(), DEC);
+    
 #ifdef DEBUG
     Serial.println();
     Serial.println("+-------------------------------------------------------+");
@@ -368,28 +338,23 @@ void setup() {
     Serial.println("+-------------------------------------------------------+");
 #endif
 
-    fillBuffer(gszDateStr, DATEBUFSIZE,     '\0');
-    fillBuffer(gszRevStr,  REVISIONBUFSIZE, '\0');
     fillBuffer(gszLineBuf, LINEBUFSIZE, '\0');
     fillBuffer(gszTempBuf, TEMPBUFSIZE, '\0');
     fillBuffer(gszCurrBuf, CURRENTBUFSIZE,  '\0');
     fillBuffer(gszVoltBuf, VOLTBUFSIZE, '\0');
-    //fillBuffer(gszLogBuff, LOGBUFSIZE,      '\0');
 
-//#if  DISPLAY_TYPE == SMALL_LCD || DISPLAY_TYPE == BIG_LCD 
-//        Serial.println("LCD is selected");
-//#elif DISPLAY_TYPE == NOKIA_LCD
-//        Serial.println("Nokia LCD is selected");
-//#else
-//        Serial.println("Some other display or no display selected");
-//#endif
+#ifdef DISP_VERSION
+    fillBuffer(gszDateStr, DATEBUFSIZE,     '\0');
+    fillBuffer(gszRevStr,  REVISIONBUFSIZE, '\0');
 
     Serial.println(IDSTR);
+
     format_svn_info();
+
     Serial.println(APP_NAME);
     Serial.println(gszRevStr);
     Serial.println(gszDateStr);
-
+#endif
     // Set Pin Modes for LCD using 6 wire interface
     //**pinMode(2,       OUTPUT);
     //**pinMode(3,       OUTPUT);
@@ -398,29 +363,14 @@ void setup() {
 //    pinMode(6,       OUTPUT);
 //    pinMode(7,       OUTPUT);
 
-#ifdef USE_SD_LEDS  
-    //pinMode(redLEDpin,    OUTPUT);
-    //pinMode(greenLEDpin,  OUTPUT);  
-#endif  
 
-    Wire.begin();        // join i2c bus (address optional for master) 
+    Wire.begin();        // join i2c bus (address optional for master)
+    
+    gasGauge.dsInit();
 
     
     //setBatCapacity(1200);
     delay(500);
-    giBatCap = getBatCapacity();
-
-    //RTC.begin(); 
-    
-    //if (! RTC.isrunning()) {
-        //Serial.println("RTC is NOT running!");
-        //following line sets the RTC to the date & time this sketch was compiled
-        //RTC.adjust(DateTime(__DATE__, __TIME__));
-    //}
-    //else {
-        //dtNow = RTC.now();
-    //}
-    
        
 #if  DISPLAY_TYPE == SMALL_LCD || DISPLAY_TYPE == BIG_LCD    
     // set up the LCD's number of rows and columns:
@@ -440,57 +390,21 @@ void setup() {
 #endif
     
     // Print a message to the LCD and delay as needed
+#ifdef DISP_VERSION
     display_app_version_info();
+#endif
 
-
-    //char name[13] = "BATGAS00.CSV";
-    
-    // initialize the SD card
-    //if (!card.init()) {error("card.init");}      
-  
-    // initialize a FAT volume
-    //if(!volume.init(card)) {error("volume.init");}
-
-    // open root directory
-    //if (!root.openRoot(volume)) {error("openRoot");}
-
-    // create a new file
-          
-    //for (uint8_t i = 0; i < 100; i++) {
-    //  name[6] = i/10 + '0';
-    //  name[7] = i%10 + '0';
-        
-      //if (file.open(root, name, O_CREAT | O_EXCL | O_WRITE)) {break;}
-    //} // end for
-          
-    //if (!file.isOpen()) {error ("file.create");} 
-      
-    //Serial.print("Logging to: ");
-    //Serial.println(name);
-     
-    //#if ECHO_TO_SERIAL
-    //  Serial.println("time,current_mA,voltage_mV,lipo_charge_mAh,temp,VoltsOK,ChargeCurrentOK,DischargeCurrentOK,ChargeEnabled,DischargeEnabled,SleepEnabled");
-    //#endif //ECHO_TO_SERIAL
-
-    // write header
-    //file.writeError = 0;
-
-    //file.println("time,current_mA,voltage_mV,lipo_charge_mAh,temp,VoltsOK,ChargeCurrentOK,DischargeCurrentOK,ChargeEnabled,DischargeEnabled,SleepEnabled");   
-    //  
-    // attempt to write out the header to the file
-    //if (file.writeError || !file.sync()) {
-    //  error("ERROR on write header");
-    //}     
-    
-    // Turn on power flag so we can detect is someone uses the power Button to 
-    // turn everything off
-    setdsPowerSwitchOn();
+    gasGauge.dsSetPowerSwitchOn();
     delay(500);
     
     // Reset any Protection Flags, so the Gas Gauge can re-evaluate them  
-    resetdsProtection(1);
+    gasGauge.dsResetProtection(DS_RESET_ENABLE);
 
-    showHelp();    
+    showHelp();  
+  
+    Serial.print("Free Memory: ");
+    Serial.println(memoryFree(), DEC);
+  
 } 
 
 
@@ -512,824 +426,28 @@ void setup() {
 //     None
 //------------------------------------------------------------------------------
 void loop() { 
-    giProtect    = 0;
-    giStatus     = 0;
-    giVolts      = 0;
-    gdCurrent    = 0.0;
-    giAccCurrent = 0;
-    gfTempC      = 0.0;
-        
-    if (getdsPowerSwitch() == 0 && giPowerOn == 1) {
-        // power down
-        giPowerOn = 0;
-        resetdsProtection(0);
-        setdsPowerSwitchOn();    // so we can detect when it's pushed again.
-    }
-    else if(getdsPowerSwitch() == 0 && giPowerOn == 0) {
-        // power up
-        giPowerOn = 1;
-        resetdsProtection(1);
-        setdsPowerSwitchOn(); 
-    }
-
-    getdsProtection();
-    getdsVoltage();  
-    getdsTemp();
     
-    DisplayData(giProtect, giStatus, giVolts, gdCurrent, giAccCurrent, giBatCap, gfTempC);
+    gasGauge.dsRefresh();
+    
+    DisplayData();
     
     if (Serial.available()) {
         handleInput(Serial.read());
     }
 
-    
-    delay(1000);
-    
-    //Serial.println();
-/*
-#ifdef USE_LOGGER
-    // clear print error
-    file.writeError = 0;
-
-    // delay for the amount of time we want between readings
-    //delay((LOG_INTERVAL -1) - (millis() % LOG_INTERVAL));
-#ifdef USE_SD_LEDS  
-    digitalWrite(redLEDpin, HIGH);
-#endif    
-
-    // log milliseconds since starting
-    uint32_t m = millis();
-
-    // fetch the time
-    //now = RTC.now();
-    // log time
-    if(giCardOk) {
-        file.print(gszLogBuff);
-        if (file.writeError) error("write data");
-    }
-    
-    
-#if ECHO_TO_SERIAL
-    Serial.println(gszLogBuff);
-#endif //ECHO_TO_SERIAL
-
-    
-#ifdef USE_SD_LEDS    
-    digitalWrite(redLEDpin, LOW);
-#endif    
-  
-    //don't sync too often - requires 2048 bytes of I/O to SD card
-    if ((millis() - syncTime) <  SYNC_INTERVAL) return;
-    syncTime = millis();
-  
-    // blink LED to show we are syncing data to the card & updating FAT!
-#ifdef USE_SD_LEDS    
-    digitalWrite(greenLEDpin, HIGH);
-#endif    
-    if (giCardOk) {
-      if(!file.sync()) error("sync");
-    }
-    
-#ifdef USE_SD_LEDS    
-    digitalWrite(greenLEDpin, LOW);
-#endif    
-  
-#endif
-*/
-       //Serial.println("Leaving loop...");
+    delay(1000);    
 } 
 
 
 
 
-#ifdef USE_LOGGER
-void error(char *str)
-{
-    Serial.print("ERROR: ");
-    Serial.println(str);
-    //Serial.println(card.errorCode(), HEX);
-    //Serial.println(card.errorData(), HEX);    
-    
-    //giCardOk = 0;
-    
-    Serial.println("--------- Going into infinite loop now --------------");
-    delay(5000);
-    //while(1);
-}
-#endif
 
 
-
-
-
-
-//------------------------------------------------------------------------------
-// getdsTemp
-//
-// Gets the Temperature from the Gas Gauge Chip
-//
-// Arguments:
-//     None
-//
-// Return Value:
-//     float - the temperature in Celsius
-//------------------------------------------------------------------------------
-float getdsTemp() {
-    // Read Voltage Register
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0x18);
-    Wire.endTransmission();
-
-    Wire.requestFrom(dsAddress, 2);
-    if(2 <= Wire.available()) {     // if two bytes were received 
-        reading = Wire.receive();   // receive high byte (overwrites previous reading) 
-        reading = reading << 8;     // shift high byte to be high 8 bits 
-        reading += Wire.receive();  // receive low byte as lower 8 bits 
-        reading = reading >> 5;
-         
-        gfTempC = reading * 0.125;
-        reading = reading * 0.125;
-                
-        //Serial.print(reading);    // print the reading 
-        //Serial.println(" degree C");
-    }
-    else {
-        //Serial.println("Nothing Received from Get Temp Request");
-        gfTempC = 0.0;
-    }
-
-    return reading;
-}
-
-
-
-
-
-
-//------------------------------------------------------------------------------
-// getdsProtection
-//
-// Gets the Protection Flags and Status Settings from the Gas Gauge Chip
-// memory.
-//
-// The protection flags include:
-// Charging Enabled
-// Charging On/Off
-// Charging Over Current Threshold
-//
-// Discharge Enabled
-// Discharge On/Off
-// Discharge Current Over Threshold
-//
-// Over Voltage
-// Under Voltage
-//
-// The Status Flags indicate if Sleep Mode is Enabled or Disabled.  When
-// the gas gauge chip is "sleeping", less power is drained from the Lipo
-// battery.
-//
-// Arguments:
-//     None
-//
-// Return Value:
-//     int - byte containing the Protection Flags.  Also sets giProtect and 
-//           giStatus global variables.
-//------------------------------------------------------------------------------
-int getdsProtection(void) {
-    int dsProtect  = 0;
-    int dsStatus   = 0;
-
-    // Read Protection Register
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0x00);
-    Wire.endTransmission();
-    Wire.requestFrom(dsAddress, 2);
-    if(2 <= Wire.available())     // if two bytes were received 
-    { 
-        dsProtect = Wire.receive();
-        dsStatus = Wire.receive();
-
-        //Serial.println(dsProtect, HEX);
-        //Serial.println(dsStatus,  HEX);
-
-        giProtect = dsProtect;
-        giStatus  = dsStatus;
-        
-        Serial.println("from getdsProtection");
-        Serial.print("Status Register from Address 01h: ");
-        Serial.println(dsStatus, HEX);
-        Serial.print("     Status Register in giStatus: ");
-        Serial.println(giStatus, HEX);
-
-#ifdef DEBUG && (DEBUG > 1)
-        if (!dsProtect & (DS00OV + DS00UV)) {
-          Serial.println("      Voltage: OK");
-        }
-        else if (dsProtect & DS00OV) { 
-          Serial.println("      Voltage: *** OVER  ***"); 
-        }
-        else if (dsProtect & DS00UV) { 
-          Serial.println("      Voltage: *** UNDER ***"); 
-        }
-        
-        if (dsProtect & DS00COC) { 
-          Serial.println("   Charge Current: *** OVER  ***"); 
-        }
-        else {
-          Serial.println("   Charge Current: OK");
-        }
-        
-        if (dsProtect & DS00DOC) { 
-          Serial.println("Discharge Current: *** OVER  ***"); 
-        }
-        else {
-          Serial.println("Discharge Current: OK");
-        }
-        
-        
-        if (dsProtect & DS00CC) { 
-            Serial.println("       Charging: *** OFF ***");
-        }
-        else {
-            Serial.println("       Charging: ON");
-        }
-        
-        if (dsProtect & DS00CE) { 
-            Serial.println("       Charging: Enabled"); 
-        }
-        else {
-            Serial.println("       Charging: Disabled");
-        }
-    
-        if (dsProtect & DS00DC) { 
-            Serial.println("    Discharging: *** OFF ***"); 
-        }
-        else {
-            Serial.println("    Discharging: ON");
-        }
-        
-        if (dsProtect & DS00DE) { 
-            Serial.println("    Discharging: Enabled");
-        }
-        else {
-            Serial.println("    Discharging: Disabled");
-        }
-        
-        if (dsStatus & DS00SLP) { 
-            Serial.println("     Sleep mode: Enabled");
-        }
-        else {
-            Serial.println("     Sleep mode: Disabled");
-        }
-#endif
-    }
-    else {
-        //Serial.println("Nothing Received from Get Protection Settings Request");
-        giProtect    = 0;
-        giStatus     = 0;
-
-    }
-
-    Serial.print("dsStatus & DS00SLP: ");
-    Serial.print(dsStatus, HEX);
-    Serial.print(" ");
-    Serial.println(DS00SLP, HEX);
-    return dsProtect;
-}
-
-
-
-
-
-
-
-
-//------------------------------------------------------------------------------
-// getdsVoltage
-//
-// This actually gets the current Voltage, current Current Draw, and the
-// Accumulated Current Count.
-// 
-//
-// Arguments:
-//     None
-//
-// Return Value:
-//     float - The current Voltage, but routine also sets the giVolts, 
-//             gdCurrent, and giAccCurrent Global Variables.
-//------------------------------------------------------------------------------
-float getdsVoltage(void) {
-    int voltage   = 0;
-    int current   = 0;
-    int acurrent  = 0;
-
-    // Read Voltage Register
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0x0C);
-    Wire.endTransmission();
-
-    Wire.requestFrom(dsAddress, 6);
-    delay(4);
-    if(6 <= Wire.available())     // if six bytes were received 
-    { 
-        voltage = Wire.receive();
-        voltage = voltage << 8;
-        voltage += Wire.receive();
-        voltage = voltage >> 5;
-        voltage = voltage * 4.88;
-        
-        current = Wire.receive();
-        current = current << 8;
-        current += Wire.receive();
-        
-        acurrent = Wire.receive();
-        acurrent = acurrent << 8;
-        acurrent += Wire.receive();
-        
-        if ((current & 0x80) == 0x80) {
-            current = (current ^ 0xFFFFFFFF);
-            current = current * -1;
-        }
-        
-        current = current >> 3;
-
-        double c = (current * 0.625);
-        
-        acurrent = acurrent * 0.25;
-
-        giVolts      = voltage;
-        gdCurrent    = c;
-        giAccCurrent = acurrent;
-    }
-    else {
-        //Serial.println("Nothing received from get Voltage Request");
-
-        giVolts    = 0;
-        gdCurrent      = 0.0;
-        giAccCurrent = 0;
-
-    }
-
-    return voltage;
-}
-
-
-
-
-
-
-
-
-//------------------------------------------------------------------------------
-// getdsPowerSwitch
-//
-// Retrieves the value of the PowerSwitch bit, which is Bit 7 of the 
-// special features register at address 0x08.  Only the Arduino can set 
-// this bit to 1, but the bit will be set to 0 is the Power Button is pushed,
-// which brings the voltage on the PS pin of the chip to LOW.
-// 
-//
-// Arguments:
-//     None
-//
-// Return Value:
-//     1 if the bit value is 1, meaning that the power is "on"
-//     0 if the bit value is 0, signaling a request to turn power off.
-//    -1 if no value retrieved
-//------------------------------------------------------------------------------
-int getdsPowerSwitch(void) {
-    int dsSpecial  = 0;
-    int iReturn    = -1;
-    //int dsStatus   = 0;
-
-    // Read Protection Register
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0x08);
-    Wire.endTransmission();
-    Wire.requestFrom(dsAddress, 1);
-    if(1 <= Wire.available()) {                 // if two bytes were received 
-        dsSpecial = Wire.receive();
-        //dsStatus = Wire.receive();
-
-        //Serial.println(dsSpecial,BIN);
-        //Serial.println(DS00PS,   BIN);
-        //Serial.println(dsStatus,BIN);
-
-        //giProtect = dsProtect;
-        //giStatus  = dsStatus;
-
-        if (dsSpecial & DS00PS) { 
-            //Serial.println("PsON");
-            iReturn = 1;
-        }
-        else {
-            //Serial.println("PsOFF");
-            iReturn = 0;
-        }
-    }
-
-    return iReturn;
-}
-
-
-
-
-
-
-
-
-
-//------------------------------------------------------------------------------
-// setdsPowerSwitchOn
-//
-// Sets the value of the PowerSwitch bit, which is Bit 7 of the 
-// special features register at address 0x08, to 1.  Only the Arduino can set 
-// this bit to 1, but the bit will be set to 0 if the Power Button is pushed,
-// which brings the voltage on the PS pin of the chip to LOW.
-// 
-//
-// Arguments:
-//     None
-//
-// Return Value:
-//     1 if the bit value was set to 1, meaning that the power is "on"
-//     0 if the bit value was not set and is still 0
-//    -1 if no value was returned when trying to confirm the setting was made.
-//------------------------------------------------------------------------------
-int setdsPowerSwitchOn(void) {
-    int dsSpecial  = 0;
-    int iReturn    = -1;
-
-    // Read Protection Register
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0x08);
-    Wire.send(DS00PS);
-    Wire.endTransmission();
-    delay(10);
-    Wire.requestFrom(dsAddress, 1);
-    if(1 <= Wire.available())     // if one byte was received 
-    { 
-        dsSpecial = Wire.receive();
-
-        if (dsSpecial & DS00PS) { 
-            //Serial.println("PsSetON");
-            iReturn = 1;
-        }
-        else {
-            //Serial.println("PsSetOFF");
-            iReturn = 0;
-        }      
-    }
-
-    return iReturn;
-}
-
-
-
-
-
-
-
-
-
-
-int getBatCapacity() { 
-
-    int     iCapacity   = 0;
-    byte    bHi         = 0;
-    byte    bLow        = 0;
-    byte    bCheck      = 0;
-    byte    bFill       = 0;
-
-    // Read 4 bytes from the start of EEPROM Address 20, which is 
-    // EEPROM Block 0.  First two bytes should be the battery
-    // capacity in mAH, and the next byte should be the first
-    // two bytes ORed together.  The 4th byte should be 0xA to
-    // indicate that this is memory that's been set by this program
-    // 
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0x20);
-    Wire.endTransmission();
-    
-    Wire.requestFrom(dsAddress, 4);
-    
-    if(4 <= Wire.available()) { 
-        bHi     = Wire.receive();
-        bLow    = Wire.receive();
-        bCheck  = Wire.receive();
-        bFill   = Wire.receive();  // should be set to 0xA
-        
-#ifdef DEBUG
-        Serial.println("Capacity Data:");
-        Serial.print(bHi, HEX);
-        Serial.print(" ");
-        Serial.print(bLow, HEX);
-        Serial.print(" ");
-        Serial.print(bCheck, HEX);
-        Serial.print(" ");
-        Serial.println(bFill, HEX);
-#endif        
-
-        if ((bHi ^ bLow == bCheck) && bFill == 0xA) {
-            // checksum matches and our filler character
-            // matches.
-            iCapacity = word(bHi, bLow);
-            //Serial.print("  Capacity is: ");
-            //Serial.print(iCapacity, DEC);
-            //Serial.println("mAh");
-        }
-        else {
-            // these 4 bytes may not have been initialized
-            // with the battery capacity yet, use the 
-            // 100 mAh as a default
-            Serial.println("Defaulting Battery Capacity to 999 mAH");
-            iCapacity = 999;
-        }
-    }
-    
-    return iCapacity;
-}
-
-
-
-
-
-
-
-
-
-
-int setBatCapacity(int aiValue) {
-
-    int     iCapacity   = 0;
-    byte    bHi         = 0;
-    byte    bLow        = 0;
-    byte    bCheck      = 0;
-    byte    bFill       = 0xA;
-
-    // Recall EEPROM Block 0 Data to Shadow RAM
-    // This automatically happens at Power Up, so this
-    // step probably isn't necessary.
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0xFE);          // Write value to Function Command Address
-    Wire.send(0xB2);          // Request refresh of Block 0 Shadow RAM from EEPROM
-    Wire.endTransmission();
-    delay(500);
-        
-        
-    // Read first 4 bytes of Block 0 Shadow RAM
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0x20);
-    Wire.endTransmission();
-    delay(100);
-    Wire.requestFrom(dsAddress, 4);
-
-    if(4 <= Wire.available()) { 
-        bHi     = Wire.receive();
-        bLow    = Wire.receive();
-        bCheck  = Wire.receive();
-        bFill   = Wire.receive();
-    }
-    else {
-        Serial.println("NoData for SetBatCap");
-    }
-
-    // Calculate our checksum by OR'ing the hi and low
-    // bytes of the battery capacity.
-    bCheck  = highByte(aiValue) ^ lowByte(aiValue);
-    
-    // Sat the last byte to 0xA == 1010 in binary
-    // as a marker to indicate that we set these 4 bytes
-    // in the Gas Gauge Memory and to even out
-    // our memory usage to an even number of bytes.
-    bFill   = 0xA;
-        
-    // Write the data back to Address 0x20, which is the
-    // "shadow RAM" for EEPROM Block 0.    
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0x20);
-    Wire.send(highByte(aiValue));
-    Wire.send(lowByte(aiValue));
-    Wire.send(bCheck);
-    Wire.send(bFill);
-    Wire.endTransmission();
-    delay(10);
-        
-    // Now that we've written to the Shadow RAM for EEPROM
-    // Block 0, we need to ask the Gas Gauge to Save the
-    // Block 0 Shadow RAM back to the EEPROM memory.    
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0xFE);        // Write value to Function Command Address
-    Wire.send(0x42);        // Request Write of Block 0 Shadow RAM back into EEPROM
-    Wire.endTransmission();
-    delay(10);
-        
-    return aiValue;
-}
-
-
-
-
-
-
-
-
-
-//------------------------------------------------------------------------------
-// setSleepMode
-//
-// Sets the default value for sleep mode on or off depending on the value
-// passed in.
-//
-// The setting for Sleep Mode is set in EEPROM Block 1 in the 5th bit of 
-// address 31h.
-//
-// The effective setting for Sleep Mode is in the Status Register, bit 5
-// of address 01h, but this bit is read-only.
-// 
-//
-// Arguments:
-//     int aiValue - 1 if sleep mode should be enabled, 0 if it should be
-//                   disabled.
-//
-// Return Value:
-//     1 if the bit value was set to 1, meaning that the power is "on"
-//     0 if the bit value was not set and is still 0
-//    -1 if no value was returned when trying to confirm the setting was made.
-//------------------------------------------------------------------------------
-int setSleepMode(int aiValue) {
-    int iReturn    = 0;
-    int iJunk      = 0;
-    int iShadow    = 0;
-        
-    // set in bit 5 in Address 31h
-        
-    // Recall EEPROM Block 1 Data to Shadow RAM
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0xFE);          // Write value to Function Command Address
-    Wire.send(0xB4);          // Request refresh of Block 1 Shadow RAM from EEPROM
-    Wire.endTransmission();
-    delay(500);
-        
-        
-    // Read second byte of Block 1 Shadow RAM
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0x31);
-    Wire.endTransmission();
-    delay(100);
-    Wire.requestFrom(dsAddress, 1);
-
-    if(1 <= Wire.available()) { 
-        iShadow = Wire.receive();
-        Serial.print("BEFORE Address 31h, Shadow Block 1 Byte 1: ");
-        Serial.println(iShadow, HEX);
-        
-        Serial.print("BEFORE giStatus Variable from Address 02h: ");
-        Serial.println(giStatus, HEX);
-        }
-    else {
-        Serial.println("NOData on Sleep Bit");
-    }
-
-    // set data
-    if(aiValue > 0) {
-        Serial.print("BEFORE Shadow OR 0x20: ");
-        Serial.print(iShadow, HEX);
-        Serial.print(" | ");
-        Serial.println(DS00SLP, HEX);
-        iShadow = iShadow | DS00SLP;  // This ensures bit 5 is set and nothing else is changed.
-    }
-    else {
-        Serial.print("BEFORE Shadow XOR 0x20: ");
-        Serial.print(iShadow, HEX);
-        Serial.print(" ^ ");
-        Serial.println(DS00SLP, HEX);
-        iShadow = iShadow ^ DS00SLP;  // this flips bit 5 to 0 if it was 1, which ensure sleep mode is disabled   
-    }
-    
-    Serial.print("AFTER, value to send      : ");
-    Serial.println(iShadow, HEX);
-    
-//#ifdef DEBUG
-//    Serial.print("Setting Sleep Mode - about to send: ");
-//    Serial.println(iShadow, HEX);
-//#endif
-        
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0x31);
-    Wire.send(iShadow);
-    Wire.endTransmission();
-    delay(10);
-        
-        
-    // copy data back into EEPROM
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0xFE);        // Write value to Function Command Address
-    Wire.send(0x44);        // Request Write of Block 1 Shadow RAM back into EEPROM
-    Wire.endTransmission();
-    delay(1000);
-    
-    // now, that we've updated the EEPROM memory, lets request a refresh of the shadow memory.
-    // do another EEPROM refresh.
-    
-    // Recall EEPROM Block 1 Data to Shadow RAM
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0xFE);          // Write value to Function Command Address
-    Wire.send(0xB4);          // Request refresh of Block 1 Shadow RAM from EEPROM
-    Wire.endTransmission();
-    delay(1000);
-        
-        
-    // Read second byte of Block 1 Shadow RAM
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0x31);
-    Wire.endTransmission();
-    delay(100);
-    Wire.requestFrom(dsAddress, 1);
-
-    if(1 <= Wire.available()) { 
-        iShadow = Wire.receive();
-        Serial.print("Address 31h - Shadow After Update and Refresh Block 1 Byte 1: ");
-        Serial.println(iShadow, HEX);
-        }
-    else {
-        Serial.println("NOData on Sleep Bit");
-    }
-    
-    if((iShadow & DS00SLP) > 0) {
-        iReturn = 1;
-    }
-    else {
-        iReturn = 0;
-    }
-
-#ifdef DEBUG
-    Serial.print("Sleep Mode now set to ");
-    Serial.println(iReturn, DEC);
-#endif
-        
-    return iReturn;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-int resetdsProtection(int aiOn) {
-    int dsProtect  = 0;
-    int dsStatus   = 0;
-
-    // Read Protection Register
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0x00);
-
-    if(aiOn == 1) {
-        Wire.send(0x03);      //Clear OV and UV, enable  charge and discharge
-    }
-    else {
-        Wire.send(0x00);    //Clear OV and UV, disable charge and discharge
-    }
-    Wire.endTransmission();
-
-    delay(10);
-    Wire.requestFrom(dsAddress, 2);
-    if(2 <= Wire.available())     // if two bytes were received 
-    { 
-        dsProtect = Wire.receive();
-        dsStatus = Wire.receive();
-        
-        giProtect = dsProtect;
-        giStatus  = dsStatus;
-        
-        Serial.println(dsStatus, HEX);
-
-    }
-    else {
-        //Serial.println("Nothing received from resetdsProtection Request");
-        
-        giProtect = 0;
-        giStatus  = 0;
-        
-    }
-    return dsProtect;
-}
-
-
-
-
-
-void DisplayData(int iProtect, int iStatus, int iVolts, double dCurrent, int iAccCurrent, int iBatCap, float fTempC) {
+void DisplayData() {
   
     //Serial.println("Entering DisplayData()");
     int   i           = 0;
+    int   iPrecision  = 1;
     char  szHi[]      = "HI";
     char  szLo[]      = "LO";
     char  szOk[]      = "Ok";
@@ -1341,40 +459,39 @@ void DisplayData(int iProtect, int iStatus, int iVolts, double dCurrent, int iAc
     char* szChrgOn    = NULL;
     char* szDChrgOn   = NULL;
 
-    // Convert temperature to Fahrenheit        
-    float fTempF  = (fTempC * 9.0 / 5.0) + 32.0;
-    
-    // Calculate % of Battery Capacity Remaining using
-    // the Total Bat Cap Stored in EEPROM Block 0, and 
-    // the Total Accumulated Current tracked
-    // by the Gas Gauge Chip.
-    float fPct    = ((float) iAccCurrent / (float) iBatCap) * 100.0;
-    
-    float fVolts  = iVolts / 1000.0;
     
     pstrTemp.begin();
     pstrCurrent.begin();
     pstrPercent.begin();
     pstrVolts.begin();
     
-    pstrCurrent.print(dCurrent, 1);
-    pstrTemp.print(fTempF, 1);        
-    pstrPercent.print(fPct, 1);
-    pstrVolts.print(fVolts, 2);
+    if(gasGauge.dsGetCurrent() < -999.9) {
+        iPrecision = 0;   
+    }
+    else {
+        iPrecision = 1;
+    }
+    
+    pstrCurrent.print(gasGauge.dsGetCurrent(),               iPrecision);    
+    pstrTemp.print   (gasGauge.dsGetTempF(),                          1);        
+    pstrPercent.print(gasGauge.dsGetBatteryCapacityPercent(),         1);
+    pstrVolts.print ((gasGauge.dsGetBatteryVoltage() / 1000.0),       2);
     
     // set Voltage Status
-    if (iProtect & DS00OV) { 
+    i = gasGauge.dsGetVoltageStatus();
+    if (i == DS_VOLTS_HI) { 
         szVoltStat = szHi; 
     }
-    else if (iProtect & DS00UV) { 
+    else if (i == DS_VOLTS_LOW) { 
         szVoltStat = szLo; 
     }
     else {
         szVoltStat = szOk; 
     }
 
+    i = gasGauge.dsGetChargeStatus();
     // set Charge Current Status
-    if (iProtect & DS00COC) {
+    if (i == DS_CHARGE_CURRENT_HI) {
         // charge current is over the threshold 
         szChrgStat = szHi;
     }
@@ -1382,16 +499,17 @@ void DisplayData(int iProtect, int iStatus, int iVolts, double dCurrent, int iAc
         szChrgStat = szOk;
     }     
 
-    if (iProtect & DS00CC) { 
-        szChrgOn = szOff;
-    }
-    else {
+    if (gasGauge.dsIsChargeOn()) { 
         szChrgOn = szOn;
     }
+    else {
+        szChrgOn = szOff;
+    }
 
 
+    i = gasGauge.dsGetDischargeStatus();
     // set Discharge Current Status
-    if (iProtect & DS00DOC) {
+    if (i == DS_DISCHARGE_CURRENT_HI) {
         // discharge current is over the threshold 
         szDChrgStat = szHi; 
     }
@@ -1400,11 +518,11 @@ void DisplayData(int iProtect, int iStatus, int iVolts, double dCurrent, int iAc
     } 
     
     
-    if (iProtect & DS00DC) { 
-        szDChrgOn = szOff;
+    if (gasGauge.dsIsDischargeOn()) { 
+        szDChrgOn = szOn;
     }
     else {
-        szDChrgOn = szOn;
+        szDChrgOn = szOff;
     }
     
     /*        
@@ -1444,7 +562,7 @@ void DisplayData(int iProtect, int iStatus, int iVolts, double dCurrent, int iAc
     // 12345678901234567890
     //   150.0mA     4200mV
     pstrLine.begin();
-    pstrLine.format("%7smA     %4dmV", gszCurrBuf, iVolts);
+    pstrLine.format("%7smA     %4dmV", gszCurrBuf, gasGauge.dsGetBatteryVoltage());
     lcd.setCursor(0, 0);
     lcd.print(pstrLine);
 
@@ -1452,7 +570,7 @@ void DisplayData(int iProtect, int iStatus, int iVolts, double dCurrent, int iAc
     // 12345678901234567890
     // 6600mAh 99.1% 102.2o
     pstrLine.begin();
-    pstrLine.format("%4dmAh%5s%% %5s", iAccCurrent, gszPctBuf, gszTempBuf);
+    pstrLine.format("%4dmAh%5s%% %5s", gasGauge.dsGetCurrent(), gszPctBuf, gszTempBuf);
             
     lcd.setCursor(0, 1);
     lcd.print(pstrLine);
@@ -1465,103 +583,12 @@ void DisplayData(int iProtect, int iStatus, int iVolts, double dCurrent, int iAc
     
     
     pstrLine.begin();
-    if (iProtect & DS00OV) { 
-        pstrLine.print(" HI "); 
-    }
-    else if (iProtect & DS00UV) { 
-        pstrLine.print(" LO "); 
-    }
-    else {
-        pstrLine.print(" OK ");
-    }
+    pstrLine.format(" %2s  %2s %3s   %3s %3s", szVoltStat, szChrgStat, szChrgOn, szDChrgStat, szDChrgOn)
     
-    pstrLine.print(" ");
-            
-    if (iProtect & DS00COC) { 
-        pstrLine.print("HI "); 
-    }
-    else {
-        pstrLine.print("OK "); 
-    }     
-    
-    if (iProtect & DS00CC) { 
-        pstrLine.print("OFF"); 
-    }
-    else {
-        pstrLine.print("ON ");
-    }
-    
-    pstrLine.print("   ");
-    
-    if (iProtect & DS00DOC) { 
-        pstrLine.print("HI "); 
-    }
-    else {
-        pstrLine.print("OK "); 
-    }        
-            
-    if (iProtect & DS00DC) { 
-        pstrLine.print("OFF"); 
-    }
-    else {
-        pstrLine.print("ON ");
-    }
-    
-    /*        
-    if (iProtect & DS00CE) { 
-        Serial.println("           Charging: Enabled"); 
-    }
-    else {
-        Serial.println("           Charging: Disabled");
-    }
-    
-    if (iProtect & DS00DE) { 
-        Serial.println("        Discharging: Enabled");
-    }
-    else {
-        Serial.println("        Discharging: Disabled");
-    }
-    */        
-
     lcd.setCursor(0, 3);
     lcd.print(pstrLine);
             
-    // log time
-    /*
-    snprintf(gszLogBuff, LOGBUFFSIZE, "%02d/%02d/%04d %02d:%02d:%02d,%s,%4d,%5d,%s,%s,%s,%s,%s,%s,%s",
-        dtNow.month(), dtNow.day(), dtNow.year(), dtNow.hour(), dtNow.minute(), dtNow.second(),
-        szCurrBuf,
-        iVolts,
-        iAccCurrent,
-        szTempBuf,
-        szVFlag, szCFlag, szDFlag,
-        szCEFlag, szDEFlag, szSEFlag);
-        
-    Serial.println(gszLogBuff);  
-    */
-/*        
-#xx ifdef USE_LOGGER        
-    DateTime now;
-    
-    // fetch the time
-    now = RTC.now();
-    
-    //gszLogBuff[LOGBUFFSIZE]
-    //file.println("time,current_mA,voltage_mV,lipo_charge_mAh,temp,VoltsOK,ChargeCurrentOK,DischargeCurrentOK,ChargeEnabled,DischargeEnabled,SleepEnabled");    
-    
-    // log time
-    snprintf(gszLogBuff, LOGBUFFSIZE, "%02d/%02d/%04d %02d:%02d:%02d,%s,%4d,%5d,%s, %s,%s,%s,%s,%s,%s",
-        now.month(), now.day(), now.year(), now.hour(), now.minute(), now.second(),
-        szCurrBuf,
-        iVolts,
-        iAccCurrent,
-        szTempBuf,
-        szVFlag, szCFlag, szDFlag,
-        szCEFlag, szDEFlag, szSEFlag);   
-        
-        //strcpy(gszLogBuff, "bogus");
-#xx endif        
-*/
+
 #elif DISPLAY_TYPE == NOKIA_LCD
 
     //Serial.println("In Display Data for Nokia Screen");
@@ -1585,18 +612,19 @@ void DisplayData(int iProtect, int iStatus, int iVolts, double dCurrent, int iAc
 
 
     pstrLine.format("%6smA%5sV%4dmAh %5s%%Voltage     %2sCharge  %3s %2sDcharge %3s %2sTemp:  %5s F", 
-                    gszCurrBuf, gszVoltBuf, iAccCurrent, gszPctBuf, szVoltStat, szChrgOn, szChrgStat, szDChrgOn, szDChrgStat, gszTempBuf);
+                    gszCurrBuf, gszVoltBuf, gasGauge.dsGetAccumulatedCurrent(), gszPctBuf, szVoltStat, szChrgOn, szChrgStat, szDChrgOn, szDChrgStat, gszTempBuf);
+                    
     nokia.drawstring(0, 0, gszLineBuf);
     //Serial.println(gszLineBuf);
     
-    if (!(iProtect & DS00CE)) {
+    if (!(gasGauge.dsIsChargeEnabled())) {
         // Charging is disabled 
         nokia.drawline(0, 3*8 + 4, 7*6, 3*8 + 4, BLACK); 
     }
     
     //nokia.display();
   
-    if (!(iProtect & DS00DE)) {
+    if (!(gasGauge.dsIsDischargeEnabled())) {
         //Discharging is disabled 
         nokia.drawline(0, 4*8 + 4, 7*6, 4*8 + 4, BLACK); 
     }
@@ -1609,7 +637,7 @@ void DisplayData(int iProtect, int iStatus, int iVolts, double dCurrent, int iAc
 
     pstrLine.begin();
     pstrLine.format("%6smA  %5sV  %4dmAh  %5s%%  Voltage %2s  Charge %3s %2s  Dcharge %3s %2s  Temp: %5s F", 
-                    gszCurrBuf, gszVoltBuf, iAccCurrent, gszPctBuf, szVoltStat, szChrgOn, szChrgStat, szDChrgOn, szDChrgStat, gszTempBuf);
+                    gszCurrBuf, gszVoltBuf, gasGauge.dsGetAccumulatedCurrent(), gszPctBuf, szVoltStat, szChrgOn, szChrgStat, szDChrgOn, szDChrgStat, gszTempBuf);
                     
     Serial.println(gszLineBuf);
     
@@ -1628,26 +656,6 @@ void DisplayData(int iProtect, int iStatus, int iVolts, double dCurrent, int iAc
 
 
 
-void setAccumCurrent(int iNewVal) {
-  
-    // Convert our new value in mAh to units of .25mAh
-    int acurrent = iNewVal / 0.25;
-    byte loByte = 0;
-    byte hiByte = 0;
-        
-    loByte = acurrent & 0x00FF;
-    hiByte = acurrent >> 8;
-        
-    // Send Data to Accumulated Current Variable
-    Wire.beginTransmission(dsAddress);
-    Wire.send(0x10);
-    delay(5);
-        
-    Wire.send(hiByte);
-    Wire.send(loByte);    
-    Wire.endTransmission();
-
-}
 
 
 
@@ -1676,7 +684,7 @@ void fillBuffer(char* aszBuff, int aiSize, char acChar) {
 
 
 
-
+#ifdef DISP_VERSION
 //------------------------------------------------------------------------------
 // format_svn_info
 //
@@ -1692,9 +700,9 @@ void fillBuffer(char* aszBuff, int aiSize, char acChar) {
 // Also, these global variables must be declared, with the constants being set to the 
 // values of SVN property strings as shown.
 //
-// const char IDSTR[]                 = "$Id: LipoGasGauge.pde 74 2011-06-06 04:53:50Z davidtamkun $";
-// const char DATESTR[]               = "$Date: 2011-06-05 21:53:50 -0700 (Sun, 05 Jun 2011) $";
-// const char REVSTR[]                = "$Rev: 74 $";
+// const char IDSTR[]                 = "$Id: LipoGasGauge.pde 75 2011-06-11 17:04:28Z davidtamkun $";
+// const char DATESTR[]               = "$Date: 2011-06-11 10:04:28 -0700 (Sat, 11 Jun 2011) $";
+// const char REVSTR[]                = "$Rev: 75 $";
 //    char gszDateStr[NUMCOLS + 1];
 //    char gszRevStr [NUMCOLS + 1];
 //    char gszLineBuf[NUMCOLS + 1];
@@ -1773,7 +781,6 @@ void format_svn_info() {
 
 
 
-
 //------------------------------------------------------------------------------
 // center_line
 //
@@ -1815,6 +822,7 @@ void center_line(char* aszText, char* aszBuff, int aiBuffSize) {
 } // end center_line
 
 
+#endif
 
 
 
@@ -1850,7 +858,7 @@ void drawstringCentered(int aiRow, char* aszBuff) {
 
 
 
-
+#ifdef DISP_VERSION
 //------------------------------------------------------------------------------
 // display_app_version_info
 //
@@ -1873,7 +881,7 @@ void display_app_version_info() {
     //
         //Serial.println("In display_app_version_info...");
         
-#if  DISPLAY_TYPE == SMALL_LCD || DISPLAY_TYPE == BIG_LCD
+//xif  DISPLAY_TYPE == SMALL_LCD || DISPLAY_TYPE == BIG_LCD
         // Display Application and Version Info
         center_line(APP_NAME, gszLineBuf, LINEBUFSIZE);
         lcd.setCursor(0, 0);
@@ -1908,7 +916,7 @@ void display_app_version_info() {
           delay(10000);
         }
         
-#elif DISPLAY_TYPE == NOKIA_LCD
+//xelif DISPLAY_TYPE == NOKIA_LCD
         //Serial.println("About to display app version info on Nokia Screen");
         nokia.clear();
 
@@ -1921,7 +929,7 @@ void display_app_version_info() {
         //                      12345678901234
         nokia.drawstring(0, 4, "Batt  Capacity");
         
-        pstrLine.print(giBatCap, DEC);
+        pstrLine.print(gasGauge.dsGetBatteryCapacity(), DEC);
         pstrLine.print(" mAh");
         
         drawstringCentered(5, gszLineBuf);
@@ -1929,7 +937,7 @@ void display_app_version_info() {
         nokia.display();
         
         delay(5000);
-#else
+//xelse
         //Serial.println("No Display, about to send App Version info to Serial Port");
         
         
@@ -1949,10 +957,11 @@ void display_app_version_info() {
         Serial.print(gszLineBuf);
         Serial.println(":");
 
-#endif
+//xendif
         //Serial.println("Leaving display_app_version_info");
 } // end display_app_version_info
 
+#endif
 
 
 
@@ -1975,13 +984,13 @@ static void handleInput (char c) {
                 Serial.print("Setting Battery Capacity to ");
                 Serial.print(giInputVal, DEC);
                 Serial.println(" mAh...");
-                setBatCapacity(giInputVal);
+                gasGauge.dsSetBatteryCapacity(giInputVal);
                 delay(100);
                 
-                giBatCap = getBatCapacity();
+                
                 
                 Serial.print("Battery Capacity Set now set to ");
-                Serial.print(giBatCap, DEC);
+                Serial.print(gasGauge.dsGetBatteryCapacity(), DEC);
                 Serial.println(" mAh.");
                 
                 giInputVal = 0;
@@ -1991,21 +1000,20 @@ static void handleInput (char c) {
                 Serial.print(giInputVal, DEC);
                 Serial.println(" mAh...");
                 
-                setAccumCurrent(giInputVal);
+                gasGauge.dsSetAccumCurrent(giInputVal);
                 
                 Serial.println("Accumulated Current set.");
              
                 giInputVal = 0;
                 break;
             case 's': // Set Sleep Mode On or Off
-                Serial.print("Sleep Mode is currently ");
-                Serial.println(giStatus, HEX);
-                Serial.print("Setting Sleep Mode to ");
-                Serial.println(giInputVal, HEX);
-                
-                Serial.print("Sleep mode is now set to ");
-                Serial.println(setSleepMode(giInputVal), HEX);
-                
+                if(giInputVal > 0) {
+                    gasGauge.dsEnableSleep();
+                }
+                else {
+                    gasGauge.dsDisableSleep();
+                }                
+                Serial.println("Sleep Mode Updated.");
                 giInputVal = 0;
                 break;
                 
@@ -2014,30 +1022,31 @@ static void handleInput (char c) {
                 break;
             case 'd': // display giInputVal
                 // retrieve protection and status settings again
-                getdsProtection();
+                gasGauge.dsRefresh();
                 delay(100);
                 Serial.println("Current Values:");
                 Serial.print  ("                 Volts: ");
-                Serial.println(giVolts, DEC);
+                Serial.println(gasGauge.dsGetBatteryVoltage(), DEC);
                 Serial.print  ("               Current: ");
-                Serial.println(gdCurrent, 1);
+                Serial.println(gasGauge.dsGetCurrent(), 1);
                 Serial.print  ("   Accumulated Current: ");
-                Serial.println(giAccCurrent, DEC);
-                Serial.print  ("          Temp Celsius: ");
-                Serial.println(gfTempC, 1);
-                //int    giDoIt       = 0;
+                Serial.println(gasGauge.dsGetAccumulatedCurrent(), DEC);
+                Serial.print  ("                Temp F: ");
+                Serial.println(gasGauge.dsGetTempF(), 1);
                 Serial.print  ("          Power On Ind: ");
-                Serial.println(giPowerOn, DEC);
+                if(gasGauge.dsIsPowerOn()) {
+                    Serial.println("ON");
+                }
+                else {
+                    Serial.println("Off");
+                }
                 Serial.print  ("      Battery Capacity: ");
-                Serial.println(giBatCap, DEC);
+                Serial.println(gasGauge.dsGetBatteryCapacity(), DEC);
                 Serial.print  ("            Sleep Mode: ");
-                //Serial.println(giStatus, HEX);
-                if(giStatus & DS00SLP > 0) {
-                    //Serial.println(1, DEC);
+                if(gasGauge.dsIsSleepEnabled()) {
                     Serial.println("Enabled");
                 }
                 else {
-                    //Serial.println(0, DEC);
                     Serial.println("Disabled");
                 }
                 Serial.print  ("  Numeric Input Buffer: ");
@@ -2075,4 +1084,9 @@ static void showString (const char* s) {
 static void showHelp () {
     showString(helpText);
 }
+
+
+
+
+
 
