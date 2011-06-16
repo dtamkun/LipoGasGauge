@@ -134,9 +134,7 @@ class DS2764 {
         void    dspGetPowerSwitch(void);
         void    dspHandlePower(void);
         
-        //getdsPowerOn();
         void    dspSetSleepMode(int);
-        
         void    dspSetPowerSwitchOn(void);    // so we can detect when it's pushed again.
 
 }; // end class DS2764

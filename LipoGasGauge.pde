@@ -1,10 +1,10 @@
 //-----------------------------------------------------------------------
-// $Id: LipoGasGauge.pde 75 2011-06-11 17:04:28Z davidtamkun $
+// $Id: LipoGasGauge.pde 78 2011-06-12 17:26:30Z davidtamkun $
 //-----------------------------------------------------------------------
 //         Program: Lipo Gas Gauge
 //         $Author: davidtamkun $
-//           $Date: 2011-06-11 10:04:28 -0700 (Sat, 11 Jun 2011) $
-//            $Rev: 75 $
+//           $Date: 2011-06-12 10:26:30 -0700 (Sun, 12 Jun 2011) $
+//            $Rev: 78 $
 //
 // Source/Based On: Sample App by J.C. Woltz
 //
@@ -36,6 +36,13 @@
 //                                        on the Serial Monitor.
 //                  DMT 06/11/2011 V1.6.2 Added the capability to turn sleep mode on and
 //                                        off from the serial menu.
+//                  DMT 06/12/2011 V2.0.0 Split DS2764 code off into separate files which could
+//                                        be in a separate library.  Removed old code from
+//                                        logging shield and most of the debug code.  Also removed
+//                                        all the version display code to get the memory size down.
+//                                        Added logic to check for Discharges of more than 999 mA
+//                                        and eliminated the decimal point for these values to
+//                                        prevent the display from getting messed up.
 //
 //    Compiliation: Arduino IDE
 //
@@ -125,7 +132,6 @@
 //** Define Options
 //******************************************************************************
 //#define DEBUG          2    // Uncomment to display addl diagnostic msgs on the Serial Monitor
-//#define DISP_VERSION   1
 #define SKIPIT         1
 #define SMALL_LCD      1      //Use 16x2 LCD - not really big enough to use
 #define BIG_LCD        2      //Use 20x4 LCD
@@ -163,12 +169,6 @@
 #endif
 
 
-#ifdef DISP_VERSION
-//                                    1   2
-//                     12345678901234567890
-#define APP_NAME      "LipoGasGauge" 
-#define APP_VER       "v 1.6.2"
-#endif
 
 
 // String Buffer Sizes
@@ -213,15 +213,6 @@
 //******************************************************************************
 //** Declare Global Variables
 //******************************************************************************
-//-- Declare Variables for Displaying Version Info
-#ifdef DISP_VERSION
-const char IDSTR[]          = "$Id: LipoGasGauge.pde 75 2011-06-11 17:04:28Z davidtamkun $";
-const char DATESTR[]        = "$Date: 2011-06-11 10:04:28 -0700 (Sat, 11 Jun 2011) $";
-const char REVSTR[]         = "$Rev: 75 $";
-      char gszDateStr[DATEBUFSIZE];
-      char gszRevStr [REVISIONBUFSIZE];
-#endif
-
       char gszLineBuf[LINEBUFSIZE];
       char gszTempBuf[TEMPBUFSIZE];
       char gszCurrBuf[CURRENTBUFSIZE];
@@ -248,12 +239,31 @@ const char helpText[]PROGMEM =
     "               1200 mAh." "\n"
     "     <n> s   - Turn Sleep Mode ON or OFF.  Entering '1 s' Enables Sleep Mode" "\n"
     "               while '0 s' disables Sleep Mode" "\n"
+    "         h   - Redisplays this menu" "\n"
+    "         x   - Clears the input buffer for this menu." "\n"
+;
+
+
+/* Older Text - too many options and string literals to use with the Nokia LCD
+    "\n"
+    "Available commands:" "\n"
+    "  <nnnn> c   - Sets Battery Capacity.  Entering '1200 c' sets the" "\n"
+    "               battery capacity to 1,200 mAh." "\n"
+    "  <nnnn> a   - Sets the Accumulated Current to the specified number" "\n"
+    "               of mAH.  Entering '1200 a' sets the battery level to" "\n"
+    "               1200 mAh." "\n"
+    "         f   - Reset Protection Flags and Disable Charging and Discharging." "\n"
+    "         n   - Reset Protection Flags and Enable Charging and Discharging." "\n"
+    "         r   - Refresh Data from Chip." "\n"
+    "     <n> s   - Turn Sleep Mode ON or OFF.  Entering '1 s' Enables Sleep Mode" "\n"
+    "               while '0 s' disables Sleep Mode" "\n"
     "  <nnnn> o   - Sets the current offset -- NOT IMPLEMENTED!" "\n"
     "         d   - Displays current info" "\n"
     "         h   - Redisplays this menu" "\n"
     "         x   - Clears Input Buffer" "\n"
-;
-
+*/
+    
+    
 
 DS2764 gasGauge = DS2764();
 int    giDoIt       = 0;
@@ -289,6 +299,7 @@ PCD8544 nokia = PCD8544(7, 6, 5, 4, 3);
 
 
 // variables created by the build process when compiling the sketch
+// used to calculate freeMemory
 extern int __bss_end;
 extern void *__brkval;
 
@@ -298,17 +309,6 @@ extern void *__brkval;
 //** Start Main Logic
 //******************************************************************************
 
-// function to return the amount of free RAM
-int memoryFree() {
-    int freeValue;
-
-    if((int)__brkval == 0)
-        freeValue = ((int)&freeValue) - ((int)&__bss_end);
-    else
-        freeValue = ((int)&freeValue) - ((int)__brkval);
-        
-    return freeValue;
-}
 
 //------------------------------------------------------------------------------
 // setup
@@ -343,33 +343,10 @@ void setup() {
     fillBuffer(gszCurrBuf, CURRENTBUFSIZE,  '\0');
     fillBuffer(gszVoltBuf, VOLTBUFSIZE, '\0');
 
-#ifdef DISP_VERSION
-    fillBuffer(gszDateStr, DATEBUFSIZE,     '\0');
-    fillBuffer(gszRevStr,  REVISIONBUFSIZE, '\0');
-
-    Serial.println(IDSTR);
-
-    format_svn_info();
-
-    Serial.println(APP_NAME);
-    Serial.println(gszRevStr);
-    Serial.println(gszDateStr);
-#endif
-    // Set Pin Modes for LCD using 6 wire interface
-    //**pinMode(2,       OUTPUT);
-    //**pinMode(3,       OUTPUT);
-//    pinMode(4,       OUTPUT);
-//    pinMode(5,       OUTPUT);
-//    pinMode(6,       OUTPUT);
-//    pinMode(7,       OUTPUT);
-
-
     Wire.begin();        // join i2c bus (address optional for master)
     
     gasGauge.dsInit();
-
     
-    //setBatCapacity(1200);
     delay(500);
        
 #if  DISPLAY_TYPE == SMALL_LCD || DISPLAY_TYPE == BIG_LCD    
@@ -389,11 +366,6 @@ void setup() {
 
 #endif
     
-    // Print a message to the LCD and delay as needed
-#ifdef DISP_VERSION
-    display_app_version_info();
-#endif
-
     gasGauge.dsSetPowerSwitchOn();
     delay(500);
     
@@ -438,6 +410,25 @@ void loop() {
     delay(1000);    
 } 
 
+
+
+
+
+
+
+
+
+// function to return the amount of free RAM
+int memoryFree() {
+    int freeValue;
+
+    if((int)__brkval == 0)
+        freeValue = ((int)&freeValue) - ((int)&__bss_end);
+    else
+        freeValue = ((int)&freeValue) - ((int)__brkval);
+        
+    return freeValue;
+}
 
 
 
@@ -622,8 +613,6 @@ void DisplayData() {
         nokia.drawline(0, 3*8 + 4, 7*6, 3*8 + 4, BLACK); 
     }
     
-    //nokia.display();
-  
     if (!(gasGauge.dsIsDischargeEnabled())) {
         //Discharging is disabled 
         nokia.drawline(0, 4*8 + 4, 7*6, 4*8 + 4, BLACK); 
@@ -635,11 +624,11 @@ void DisplayData() {
     
 #else
 
-    pstrLine.begin();
-    pstrLine.format("%6smA  %5sV  %4dmAh  %5s%%  Voltage %2s  Charge %3s %2s  Dcharge %3s %2s  Temp: %5s F", 
-                    gszCurrBuf, gszVoltBuf, gasGauge.dsGetAccumulatedCurrent(), gszPctBuf, szVoltStat, szChrgOn, szChrgStat, szDChrgOn, szDChrgStat, gszTempBuf);
-                    
-    Serial.println(gszLineBuf);
+    //pstrLine.begin();
+    //pstrLine.format("%6smA  %5sV  %4dmAh  %5s%%  Voltage %2s  Charge %3s %2s  Dcharge %3s %2s  Temp: %5s F", 
+    //                gszCurrBuf, gszVoltBuf, gasGauge.dsGetAccumulatedCurrent(), gszPctBuf, szVoltStat, szChrgOn, szChrgStat, szDChrgOn, szDChrgStat, gszTempBuf);
+    //                
+    //Serial.println(gszLineBuf);
     
 #endif
 
@@ -682,98 +671,6 @@ void fillBuffer(char* aszBuff, int aiSize, char acChar) {
 }
 
 
-
-
-#ifdef DISP_VERSION
-//------------------------------------------------------------------------------
-// format_svn_info
-//
-// Formats the contents of the file revision information from SVN 
-// into strings more friendly to display.
-//
-// Requires that these symbols have been #define'ed:
-//   NUMROWS  - number of rows in display device
-//   NUMCOLS  - number of columns in display device
-//   APP_NAME - application name to display, the length must be <= NUMCOLS
-//   APP_VER  - application version set to "Version x.y"
-//
-// Also, these global variables must be declared, with the constants being set to the 
-// values of SVN property strings as shown.
-//
-// const char IDSTR[]                 = "$Id: LipoGasGauge.pde 75 2011-06-11 17:04:28Z davidtamkun $";
-// const char DATESTR[]               = "$Date: 2011-06-11 10:04:28 -0700 (Sat, 11 Jun 2011) $";
-// const char REVSTR[]                = "$Rev: 75 $";
-//    char gszDateStr[NUMCOLS + 1];
-//    char gszRevStr [NUMCOLS + 1];
-//    char gszLineBuf[NUMCOLS + 1];
-//
-// This function takes the SVN Date information from DATESTR and formats it 
-// into gszDateStr.
-//   If NUMCOLS >= 19, the format is YYYY-MM-DD HH:MM:SS
-//   If NUMCOLS >= 14, the format is YY-MM-DD HH:MM
-//   otherwise gszDateStr is not changed
-//
-// gszRevStr will contain APP_VER with "." and the SVN Revision Number appended
-// on.
-//
-// Arguments:
-//     None
-//
-// Return Value:
-//     None
-//------------------------------------------------------------------------------
-void format_svn_info() {
-      
-  int      i                 =  0;
-  int      iSvnDateLen       = 19;    // length of YYYY-MM-DD HH:MM:SS
-  int      iSvnShortDateLen  = 14;    // length of YY-MM-DD HH:MM  
-  int      iSvnMinDateLen    = 10;    // length of YYYY-MM-DD
-  int      iAppVerLen        = strlen(APP_VER);
-  PString  VerString(gszRevStr, REVISIONBUFSIZE);
-  
-  // 1234567890123456
-  // mm/dd/yy hh:mm
-  // Load SVN Date into the Date String Buffer
-  // NUMCOLS must be >= iSvnDateLen
-  
-  if(NUMCOLS >= iSvnDateLen) {
-    while(i < iSvnDateLen) {
-      gszDateStr[i]       = DATESTR[i + 7]; 
-      gszDateStr[iSvnDateLen] = '\0';  // null character
-      i++;
-    }
-  }
-  else if(NUMCOLS >= iSvnShortDateLen) {
-    while(i < iSvnShortDateLen) {
-      gszDateStr[i] = DATESTR[i + 9];
-      gszDateStr[iSvnShortDateLen] = '\0';
-      i++;
-    }
-  }
-  else if(NUMCOLS >= iSvnMinDateLen) {
-    while(i < iSvnMinDateLen) {
-      gszDateStr[i] = DATESTR[i + 7];
-      gszDateStr[iSvnMinDateLen] = '\0';
-      i++;
-    }
-  }
-  else {
-    gszDateStr[0] = '\0';
-    Serial.println("No room for Date String in format_svn_info");
-  }
-  
-  // Load the App Version into the Version Buffer
-  VerString.print(APP_VER);
-  VerString.print(".");
-  
-  i = 0;
-  
-  while(i < NUMCOLS && REVSTR[i + 6] >= '0' && REVSTR[i + 6] <= '9') {
-    VerString.print(REVSTR[i + 6]);
-    i++;
-  }
-    
-} // end format_svn_info
 
 
 
@@ -822,7 +719,6 @@ void center_line(char* aszText, char* aszBuff, int aiBuffSize) {
 } // end center_line
 
 
-#endif
 
 
 
@@ -857,111 +753,6 @@ void drawstringCentered(int aiRow, char* aszBuff) {
 
 
 
-
-#ifdef DISP_VERSION
-//------------------------------------------------------------------------------
-// display_app_version_info
-//
-// This function displays application version information on the appropriate
-// display device and pauses so the user has time to read it at startup.  This
-// code must be customized as appropriate for the display device (i.e. LCD
-// vs Nokia Display vs OLED display, etc).
-//
-// Arguments:
-//     None
-//
-// Return Value:
-//     None
-//------------------------------------------------------------------------------
-void display_app_version_info() {
-    //
-    //
-    // Change as needed for appropriate display type
-    //
-    //
-        //Serial.println("In display_app_version_info...");
-        
-//xif  DISPLAY_TYPE == SMALL_LCD || DISPLAY_TYPE == BIG_LCD
-        // Display Application and Version Info
-        center_line(APP_NAME, gszLineBuf, LINEBUFSIZE);
-        lcd.setCursor(0, 0);
-        lcd.print(gszLineBuf);
-        
-        center_line(gszRevStr, gszLineBuf, LINEBUFSIZE);
-        lcd.setCursor(0, 1);
-        lcd.print(gszLineBuf);
-
-        center_line(gszDateStr, gszLineBuf, LINEBUFSIZE);
-        
-        if(NUMROWS < 4) {
-          delay(5000);
-          lcd.setCursor(0, NUMROWS - 1);
-          lcd.print(gszLineBuf);
-          delay(5000);
-        }
-        else {
-          lcd.setCursor(0, 2);
-          lcd.print(gszLineBuf);
-          
-          lcd.setCursor(0, 3);
-          pstrLine.begin();
-          
-          // 12345678901234567890
-          // Batt Cap.    6600mAh
-          pstrLine.print("Batt Cap.   ");
-          pstrLine.print(giBatCap, DEC);
-          pstrLine.print(" mAh");
-          lcd.print(gszLineBuf);
-
-          delay(10000);
-        }
-        
-//xelif DISPLAY_TYPE == NOKIA_LCD
-        //Serial.println("About to display app version info on Nokia Screen");
-        nokia.clear();
-
-        pstrLine.begin();
-        
-        drawstringCentered(0, APP_NAME);
-        drawstringCentered(1, gszRevStr);
-        drawstringCentered(2, gszDateStr);
-        
-        //                      12345678901234
-        nokia.drawstring(0, 4, "Batt  Capacity");
-        
-        pstrLine.print(gasGauge.dsGetBatteryCapacity(), DEC);
-        pstrLine.print(" mAh");
-        
-        drawstringCentered(5, gszLineBuf);
-        
-        nokia.display();
-        
-        delay(5000);
-//xelse
-        //Serial.println("No Display, about to send App Version info to Serial Port");
-        
-        
-        center_line(APP_NAME, gszLineBuf, LINEBUFSIZE);
-        Serial.print(":");
-        Serial.print(gszLineBuf);
-        Serial.println(":");
-        
-        center_line(gszRevStr, gszLineBuf, LINEBUFSIZE);
-        Serial.print(":");
-        Serial.print(gszLineBuf);
-        Serial.println(":");
-
-        
-        center_line(gszDateStr, gszLineBuf, LINEBUFSIZE);
-        Serial.print(":");
-        Serial.print(gszLineBuf);
-        Serial.println(":");
-
-//xendif
-        //Serial.println("Leaving display_app_version_info");
-} // end display_app_version_info
-
-#endif
 
 
 
@@ -1016,7 +807,27 @@ static void handleInput (char c) {
                 Serial.println("Sleep Mode Updated.");
                 giInputVal = 0;
                 break;
-                
+ /*               
+            case 'f':    // reset dsProtection and disable power in and out
+                gasGauge.dsResetProtection(DS_RESET_DISABLE);
+                delay(100);
+                gasGauge.dsRefresh();
+                Serial.println("Reset and Disabled.");
+                giInputVal = 0;
+                break;               
+            case 'n':    // reset dsProtection and enable power in and out
+                gasGauge.dsResetProtection(DS_RESET_ENABLE);
+                delay(100);
+                Serial.println("Refreshing...");
+                gasGauge.dsRefresh();
+                Serial.println("Reset and Enabled.");
+                giInputVal = 0;
+                break;
+            case 'r': // refresh
+                gasGauge.dsRefresh();
+                Serial.println("Refresh Complete.");
+                giInputVal = 0;
+                break;
             case 'o': // This will be a place to set the Current Offset.
                 giInputVal = 0;
                 break;
@@ -1049,9 +860,60 @@ static void handleInput (char c) {
                 else {
                     Serial.println("Disabled");
                 }
+                Serial.print  ("        Voltage Status: ");
+                Serial.println(gasGauge.dsGetVoltageStatus(), DEC);
+                
+                //              1234567890123456789012v
+                Serial.print  ("         Charge Status: ");
+                Serial.println(gasGauge.dsGetChargeStatus(), DEC);
+                
+                 
+                if(gasGauge.dsIsChargeOn()) { 
+                    //              1234567890123456789012v
+                    Serial.println("           Charging is: ON");
+                }
+                else {
+                    Serial.println("           Charging is: OFF");
+                }
+                
+                if(gasGauge.dsIsChargeEnabled()) { 
+                    Serial.println("           Charging is: Enabled");
+                }
+                else {
+                    Serial.println("           Charging is: Disabled");
+                }
+                
+                //              1234567890123456789012v
+                Serial.print  ("      Discharge Status: ");
+                Serial.println(gasGauge.dsGetDischargeStatus(), DEC);
+
+               if(gasGauge.dsIsDischargeOn()) { 
+                    //              1234567890123456789012v
+                    Serial.println("        Discharging is: ON");
+                }
+                else {
+                    Serial.println("        Discharging is: OFF");
+                }
+                
+                if(gasGauge.dsIsDischargeEnabled()) { 
+                    Serial.println("        Discharging is: Enabled");
+                }
+                else {
+                    Serial.println("        Discharging is: Disabled");
+                }
+ 
+                if(gasGauge.dsIsPowerOn()) {
+                    Serial.println("              Power is: ON");
+                }
+                else {
+                    Serial.println("              Power is: OFF");
+                }
+
+                //              1234567890123456789012v
                 Serial.print  ("  Numeric Input Buffer: ");
                 Serial.println(giInputVal, DEC);
                 break;
+                
             case 'h': // display menu again
                 showHelp();
                 break;
@@ -1059,7 +921,7 @@ static void handleInput (char c) {
                 giInputVal = 0;
                 showHelp();
                 Serial.println("Input Buffer Cleared");
-                break;
+                break; */
         }
     } else if (c > ' ')
         showHelp();

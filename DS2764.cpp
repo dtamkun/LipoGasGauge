@@ -8,8 +8,6 @@
 #include "DS2764.h"
 
 
-
-
 // Public Methods
 void DS2764::dsInit(void) {
 
@@ -118,7 +116,7 @@ float   DS2764::dsGetTempF(void) {
 
 int DS2764::dsGetVoltageStatus(void) {
 
-    if (!miProtect & (DS00OV + DS00UV)) {
+    if (!(miProtect & (DS00OV + DS00UV))) {
         //Serial.println("      Voltage: OK");
         return DS_VOLTS_OK;
     }
@@ -190,40 +188,46 @@ void DS2764::dsRefresh(void) {
 
 
 
+// Apparently the Charge and Discharge Over Current flags do not get reset by this function,
+// but by the chip once the problem is corrected.
 void DS2764::dsResetProtection(int aiOn) {
     int dsProtect  = 0;
     int dsStatus   = 0;
 
     // Read Protection Register
+    
+    if(aiOn == DS_RESET_ENABLE) {
+        dsProtect = DS_PROTECTION_CLEAR_ENABLE;     //Clear OV and UV and enable both charge and discharge
+    }
+    else {
+        dsProtect = DS_PROTECTION_CLEAR_DISABLE;    //Clear OV and UV and disable both charge and discharge
+    }
+    
+    //Serial.print("About to send Protection Flags: ");
+    //Serial.println(lowByte(dsProtect), HEX);
+    
     Wire.beginTransmission(DS_ADDRESS);
     Wire.send(DS_PROTECTION_REGISTER);
-
-    if(aiOn == DS_RESET_ENABLE) {
-        Wire.send(DS_PROTECTION_CLEAR_ENABLE);      //Clear OV and UV, enable  charge and discharge
-    }
-    else {
-        Wire.send(DS_PROTECTION_CLEAR_DISABLE);     //Clear OV and UV, disable charge and discharge
-    }
+    Wire.send(lowByte(dsProtect));      
     Wire.endTransmission();
-
-    delay(10);
+    //delay(10);
     Wire.requestFrom(DS_ADDRESS, 2);
-    if(2 <= Wire.available())                    //if two bytes were received 
+    if(1 <= Wire.available())                    //if two bytes were received 
     { 
         miProtect = Wire.receive();
-        miStatus  = Wire.receive();
-        Serial.print("dsResetProtection miProtect: ");
-        Serial.println(miProtect, BIN);
-        Serial.print("dsResetProtection  miStatus: ");
-        Serial.println(miStatus, BIN);
-        
+        miStatus  = Wire.receive(); 
     }
     else {
-        Serial.println("Nothing received from resetdsProtection Request");
+      //  Serial.println("Nothing received from resetdsProtection Request");
         
-        miProtect = 0;
-        miStatus  = 0;        
+        miProtect = -1;
+        miStatus  = -1;        
     }
+    //Serial.print("dsResetProtection miProtect: ");
+    //Serial.println(miProtect, HEX);
+    //Serial.print("dsResetProtection  miStatus: ");
+    //Serial.println(miStatus, HEX);
+
 }
 
 
