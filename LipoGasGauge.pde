@@ -43,6 +43,7 @@
 //                                        Added logic to check for Discharges of more than 999 mA
 //                                        and eliminated the decimal point for these values to
 //                                        prevent the display from getting messed up.
+//                  DMT 06/18/2011 V2.1.0 Moved DS2764 code into a separate library.
 //
 //    Compiliation: Arduino IDE
 //
@@ -190,7 +191,7 @@
 #include <avr/pgmspace.h>   // needed for PROGMEM
 #include <PString.h>
 #include <Wire.h>           // required for I2C communication with Gas Gauge
-#include "DS2764.h"
+#include <DS2764.h>
 
 #if DISPLAY_TYPE == SMALL_LCD || DISPLAY_TYPE == BIG_LCD
 #include <LiquidCrystal.h>
