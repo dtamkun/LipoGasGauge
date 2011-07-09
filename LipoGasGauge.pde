@@ -1,10 +1,6 @@
 //-----------------------------------------------------------------------
-// $Id: LipoGasGauge.pde 78 2011-06-12 17:26:30Z davidtamkun $
-//-----------------------------------------------------------------------
 //         Program: Lipo Gas Gauge
 //         $Author: davidtamkun $
-//           $Date: 2011-06-12 10:26:30 -0700 (Sun, 12 Jun 2011) $
-//            $Rev: 78 $
 //
 // Source/Based On: Sample App by J.C. Woltz
 //
@@ -44,6 +40,11 @@
 //                                        and eliminated the decimal point for these values to
 //                                        prevent the display from getting messed up.
 //                  DMT 06/18/2011 V2.1.0 Moved DS2764 code into a separate library.
+//                  DMT 07/09/2011 V2.2.0 Some code cleanup, tested to make sure this works with
+//                                        the Nokia LCD.  Other Displays have not been tested
+//                                        recently, so the #defines may not work.  Memory
+//                                        continues to be a challenge, and this version 
+//                                        just barely fits onto an UNO.
 //
 //    Compiliation: Arduino IDE
 //
@@ -53,27 +54,22 @@
 //                       Maxim DS2764+025 Lipo Protector Chip
 //                            i2C Slave Address 0x34
 //
-//                  HD44780 Character 20x4 LCD (White on Blue)
+//                  HD44780 Character 20x4 LCD (White on Blue) <== NOT Tested Recently
 //                  LCD Backback from Adafruit
 //                  -- OR --
 //                  Nokia LCD Display using PCD8544 driver chip
-//
-//                  NOT WORKING YET!! Data Logging Shield from Adafruit
-//
 //                
-//       Libraries: Wire/Liquid Crystal for LCD Display
+//       Libraries: Wire/Liquid Crystal if using LCD Display
 //                  PCD8544 if using Nokia Display
-//                  SdFat & RTClib for Data Logging Shield
 //
+//   Communication: Uses i2C for Gas Gauge
+//                       SPI for LCD or Nokia LCD
 //
-//   Communication: Uses i2C for RTC and Gas Gauge
-//                       SPI for LCD, Nokia LCD, & SD Card
+//         Voltage: 5 Volts OK, but Nokia Display needs 3.3v
 //
-//         Voltage: 5 Volts OK
-//
-//          Status: Experimental      <=========
+//          Status: Experimental
 //                  Work in Progress
-//                  Stable
+//                  Stable                  <=========
 //                  Complete
 //
 //          Wiring: LCD Backback from Adafruit
@@ -132,8 +128,6 @@
 //******************************************************************************
 //** Define Options
 //******************************************************************************
-//#define DEBUG          2    // Uncomment to display addl diagnostic msgs on the Serial Monitor
-#define SKIPIT         1
 #define SMALL_LCD      1      //Use 16x2 LCD - not really big enough to use
 #define BIG_LCD        2      //Use 20x4 LCD
 #define NOKIA_LCD      3      //Use 13x5 Nokia LCD Display - 84x48 pixels
@@ -147,8 +141,6 @@
 //#define DISPLAY_TYPE   0
 //#define DISPLAY_TYPE    TFT_LCD_2_8_TOUCH_SHIELD    
 
-//** Data Logging Shield not working yet.
-#define USE_LOGGER     0     // Define to use the Data Logging Shield--NOT WORKING--
 
 #if DISPLAY_TYPE == SMALL_LCD
 #define NUMCOLS        16    // number of LCD Columns
@@ -164,7 +156,6 @@
 #define NUMCOLS        14    // number of LCD Columns
 #define NUMROWS         6    // number of LCD Lines
 #define LINEBUFSIZE    (NUMCOLS * NUMROWS) + 1    // 6 lines of 14 characters plus trailing NULL
-//#define NOWIRE          1
 
 #else
 // Define these anyway so our buffers are defined
@@ -233,7 +224,6 @@
   PString  pstrCurrent(gszCurrBuf, CURRENTBUFSIZE);
   PString  pstrPercent(gszPctBuf,  TEMPBUFSIZE);
   PString  pstrVolts  (gszVoltBuf, VOLTBUFSIZE);
-//  PString  pstrLog    (gszLogBuf,  LOGBUFSIZE);
       
 // a bitmap of a degree symbol
 static unsigned char __attribute__ ((progmem)) degree_bmp[]={0x06, 0x09, 0x09, 0x06, 0x00};
@@ -337,13 +327,6 @@ int8_t saved_spimode;
 
 
 
-// variables created by the build process when compiling the sketch
-// used to calculate freeMemory
-extern int __bss_end;
-extern void *__brkval;
-
-
-
 //******************************************************************************
 //** Start Main Logic
 //******************************************************************************
@@ -365,18 +348,6 @@ void setup() {
     Serial.begin(9600);          // start serial communication at 9600bps
     delay(500);
     
-    Serial.print("Free Memory: ");
-    Serial.println(memoryFree(), DEC);
-    
-#ifdef DEBUG
-    Serial.println();
-    Serial.println("+-------------------------------------------------------+");
-    Serial.println("+-------------------------------------------------------+");
-    Serial.println("+-- Start of Program                                  --+");
-    Serial.println("+-------------------------------------------------------+");
-    Serial.println("+-------------------------------------------------------+");
-#endif
-
     fillBuffer(gszLineBuf, LINEBUFSIZE, '\0');
     fillBuffer(gszTempBuf, TEMPBUFSIZE, '\0');
     fillBuffer(gszCurrBuf, CURRENTBUFSIZE,  '\0');
@@ -464,10 +435,7 @@ void setup() {
     gasGauge.dsResetProtection(DS_RESET_ENABLE);
 
     showHelp();  
-  
-    //Serial.print("Free Memory: ");
-    //Serial.println(memoryFree(), DEC);
-  
+   
 } 
 
 
@@ -518,18 +486,6 @@ void enableSPI(void) {
 
 
 
-
-// function to return the amount of free RAM
-int memoryFree() {
-    int freeValue;
-
-    if((int)__brkval == 0)
-        freeValue = ((int)&freeValue) - ((int)&__bss_end);
-    else
-        freeValue = ((int)&freeValue) - ((int)__brkval);
-        
-    return freeValue;
-}
 
 
 
@@ -738,17 +694,8 @@ void DisplayData() {
 
 
 
-#else
-
-    //pstrLine.begin();
-    //pstrLine.format("%6smA  %5sV  %4dmAh  %5s%%  Voltage %2s  Charge %3s %2s  Dcharge %3s %2s  Temp: %5s F", 
-    //                gszCurrBuf, gszVoltBuf, gasGauge.dsGetAccumulatedCurrent(), gszPctBuf, szVoltStat, szChrgOn, szChrgStat, szDChrgOn, szDChrgStat, gszTempBuf);
-    //                
-    //Serial.println(gszLineBuf);
     
 #endif
-
-         //Serial.println("Leaving DisplayData()...");
 }
 
 
@@ -785,90 +732,6 @@ void fillBuffer(char* aszBuff, int aiSize, char acChar) {
     aszBuff[i] = acChar;
   }  
 }
-
-
-
-
-
-
-
-
-
-//------------------------------------------------------------------------------
-// center_line
-//
-// This function centers and copies the text in aszText to the buffer 
-// aszBuff
-//
-// Arguments:
-//     aszText    IN Pointer to a string containing the text to center
-//     aszBuff    IN Pointer to a buffer to receive the centered string
-//     aiBuffSize IN the size of the buffer pointed to by aszBuff.
-//
-// Return Value:
-//     None - but the centered text is copied to aszBuff
-//------------------------------------------------------------------------------
-void center_line(char* aszText, char* aszBuff, int aiBuffSize) {
-
-  int i        = 0;
-  int iOffset  = 0;
-  int iLen     = 0;
-
-  for (i = 0; i < aiBuffSize - 1; i++) {
-    aszBuff[i] = ' ';
-  }
-  aszBuff[aiBuffSize - 1] = '\0';
-  
-  iLen = strlen(aszText);
-  
-  iOffset = trunc((aiBuffSize - 1 - iLen) / 2);
-    
-  if(iOffset < 0) {iOffset = 0;}
-  
-  i = 0;
-  while ((i < iLen) && ((i + iOffset) < (aiBuffSize - 1))) {
-    
-    aszBuff[i + iOffset] = aszText[i];
-    i++;
-  }
-   
-} // end center_line
-
-
-
-
-
-
-#if DISPLAY_TYPE == NOKIA_LCD
-//------------------------------------------------------------------------------
-// drawstringCentered
-//
-// Centers and prints a text string on a line of a Nokia LCD Display
-//
-// Arguments:
-//     aiRow      IN Row Number to print the text on, (0 - 5)
-//     aszBuff    IN Pointer to the text to print
-//
-// Return Value:
-//     None
-//------------------------------------------------------------------------------
-void drawstringCentered(int aiRow, char* aszBuff) {
-  int i        = 0;
-  int iOffset  = 0;
-  int iLen     = 0;
-  
-  iLen = strlen(aszBuff);
-  
-  iOffset = trunc((NUMCOLS - iLen) / 2);
-  
-  if(iOffset < 0) {iOffset = 0;}
-  
-  nokia.drawstring(iOffset * 6, aiRow, aszBuff);
-}
-#endif
-
-
-
 
 
 
