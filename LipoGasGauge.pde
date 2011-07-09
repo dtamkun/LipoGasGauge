@@ -137,11 +137,15 @@
 #define SMALL_LCD      1      //Use 16x2 LCD - not really big enough to use
 #define BIG_LCD        2      //Use 20x4 LCD
 #define NOKIA_LCD      3      //Use 13x5 Nokia LCD Display - 84x48 pixels
+#define TFT_LCD_1_8    4    // Use 1.8" TFT LCD Display with SD Card
+#define TFT_LCD_2_8    5    // Use 2.8" TFT LCD Display
+#define TFT_LCD_2_8_TOUCH_SHIELD    6    // use 2.8" TFT LCD Touch Shield Display with SD Card
 
 //** Choose one of these displays
 #define DISPLAY_TYPE   NOKIA_LCD
 //#define DISPLAY_TYPE   BIG_LCD
 //#define DISPLAY_TYPE   0
+//#define DISPLAY_TYPE    TFT_LCD_2_8_TOUCH_SHIELD    
 
 //** Data Logging Shield not working yet.
 #define USE_LOGGER     0     // Define to use the Data Logging Shield--NOT WORKING--
@@ -156,7 +160,7 @@
 #define NUMROWS        4     // number of LCD Lines
 #define LINEBUFSIZE    NUMCOLS + 1
 
-#elif DISPLAY_TYPE == NOKIA_LCD
+#elif DISPLAY_TYPE == NOKIA_LCD || DISPLAY_TYPE == TFT_LCD_2_8_TOUCH_SHIELD
 #define NUMCOLS        14    // number of LCD Columns
 #define NUMROWS         6    // number of LCD Lines
 #define LINEBUFSIZE    (NUMCOLS * NUMROWS) + 1    // 6 lines of 14 characters plus trailing NULL
@@ -196,7 +200,11 @@
 #if DISPLAY_TYPE == SMALL_LCD || DISPLAY_TYPE == BIG_LCD
 #include <LiquidCrystal.h>
 #elif DISPLAY_TYPE == NOKIA_LCD
-#include "PCD8544.h"
+#include <PCD8544.h>
+#elif DISPLAY_TYPE == TFT_LCD_2_8_TOUCH_SHIELD
+#include <SD.h>
+#include <SPI.h>
+#include "TFTLCD.h"
 #endif
 
 
@@ -266,7 +274,7 @@ const char helpText[]PROGMEM =
     
     
 
-DS2764 gasGauge = DS2764();
+DS2764 gasGauge     = DS2764();
 int    giDoIt       = 0;
 int    giInputVal   = 0;
 
@@ -293,6 +301,36 @@ LiquidCrystal lcd(3, 2, 4);
 PCD8544 nokia = PCD8544(7, 6, 5, 4, 3);
 //PCD8544 nokia = PCD8544(2, 3, 5, 6, 7);
 //PCD8544 nokia = PCD8544(9, 8, 7, 6, 5);
+
+#elif DISPLAY_TYPE == TFT_LCD_2_8_TOUCH_SHIELD
+
+// These are the pins as connected in the shield
+#define LCD_CS A3    // Chip Select goes to Analog 3
+#define LCD_CD A2    // Command/Data goes to Analog 2
+#define LCD_WR A1    // LCD Write goes to Analog 1
+#define LCD_RD A0    // LCD Read goes to Analog 0
+
+// The chip select pin for the SD card on the shield
+#define SD_CS 5 
+// In the SD card, place 24 bit color BMP files (be sure they are 24-bit!)
+// There are examples in the sketch folder
+
+// our TFT wiring
+TFTLCD tft(LCD_CS, LCD_CD, LCD_WR, LCD_RD, 0);
+
+// the file itself
+//File bmpFile;
+
+// information we extract about the bitmap file
+int bmpWidth, bmpHeight;
+uint8_t bmpDepth, bmpImageoffset;
+
+/************* HARDWARE SPI ENABLE/DISABLE */
+// we want to reuse the pins for the SD card and the TFT - to save 2 pins. this means we have to
+// enable the SPI hardware interface whenever accessing the SD card and then disable it when done
+int8_t saved_spimode;
+
+
 #endif
 
 
@@ -364,6 +402,58 @@ void setup() {
     nokia.command(PCD8544_DISPLAYCONTROL | PCD8544_DISPLAYNORMAL);
     delay(500);
     nokia.clear();
+    
+#elif DISPLAY_TYPE == TFT_LCD_2_8_TOUCH_SHIELD
+
+  tft.reset();
+  
+  // find the TFT display
+  uint16_t identifier = tft.readRegister(0x0);
+  if (identifier == 0x9325) {
+    Serial.println("Found ILI9325");
+  } else if (identifier == 0x9328) {
+    Serial.println("Found ILI9328");
+  } else {
+    Serial.print("Unknown driver chip ");
+    Serial.println(identifier, HEX);
+    while (1);
+  }  
+ 
+  tft.initDisplay();
+  // the image is a landscape, so get into landscape mode
+  tft.setRotation(1);
+
+  Serial.print("Initializing SD card...");
+ 
+  if (!SD.begin(SD_CS)) {
+    Serial.println("failed!");
+    return;
+  }
+  Serial.println("SD OK!");
+  
+  //bmpFile = SD.open("tiger.bmp");
+
+  //if (! bmpFile) {
+  //  Serial.println("didnt find image");
+  //  while (1);
+  //}
+  
+  //if (! bmpReadHeader(bmpFile)) { 
+  //   Serial.println("bad bmp");
+  //   return;
+  //}
+  
+  //Serial.print("image size "); 
+  //Serial.print(bmpWidth, DEC);
+  //Serial.print(", ");
+  //Serial.println(bmpHeight, DEC);
+  //disableSPI();    // release SPI so we can use those pins to draw
+ 
+  //bmpdraw(bmpFile, 0, 0);
+  // disable the SD card interface after we are done!
+  //disableSPI();
+}
+
 
 #endif
     
@@ -375,8 +465,8 @@ void setup() {
 
     showHelp();  
   
-    Serial.print("Free Memory: ");
-    Serial.println(memoryFree(), DEC);
+    //Serial.print("Free Memory: ");
+    //Serial.println(memoryFree(), DEC);
   
 } 
 
@@ -415,6 +505,16 @@ void loop() {
 
 
 
+#if DISPLAY_TYPE == TFT_LCD_2_8_TOUCH_SHIELD
+void disableSPI(void) {
+  saved_spimode = SPCR;
+  SPCR = 0;
+}
+
+void enableSPI(void) {
+  SPCR = saved_spimode; 
+}
+#endif
 
 
 
@@ -622,7 +722,22 @@ void DisplayData() {
     nokia.drawbitmap(72, 40, degree_bmp, 5, 8, BLACK);
     
     nokia.display();
-    
+
+
+#elif DISPLAY_TYPE == TFT_LCD_2_8_TOUCH_SHIELD
+
+    tft.fillScreen(BLACK);
+    tft.setCursor(0, 20);
+    tft.setTextColor(RED);
+    tft.setTextSize(1);
+    tft.println("Hello World!");
+    tft.setTextSize(2);
+    tft.println(1234.56);
+    tft.setTextSize(3);
+    tft.println(0xDEADBEEF, HEX);
+
+
+
 #else
 
     //pstrLine.begin();
