@@ -45,6 +45,9 @@
 //                                        recently, so the #defines may not work.  Memory
 //                                        continues to be a challenge, and this version 
 //                                        just barely fits onto an UNO.
+//                  DMT 09/17/2011 V2.3.0 Adjusting to use newer version of PCD8554 Library that
+//                                        inherits from the Print Class.  Eliminating use of
+//                                        PString class to reduce memory requirements.
 //
 //    Compiliation: Arduino IDE
 //
@@ -130,7 +133,7 @@
 //******************************************************************************
 #define SMALL_LCD      1      //Use 16x2 LCD - not really big enough to use
 #define BIG_LCD        2      //Use 20x4 LCD
-#define NOKIA_LCD      3      //Use 13x5 Nokia LCD Display - 84x48 pixels
+#define NOKIA_LCD      3      //Use 14x6 Nokia LCD Display - 84x48 pixels
 #define TFT_LCD_1_8    4    // Use 1.8" TFT LCD Display with SD Card
 #define TFT_LCD_2_8    5    // Use 2.8" TFT LCD Display
 #define TFT_LCD_2_8_TOUCH_SHIELD    6    // use 2.8" TFT LCD Touch Shield Display with SD Card
@@ -184,7 +187,7 @@
 //** Include Library Code
 //******************************************************************************
 #include <avr/pgmspace.h>   // needed for PROGMEM
-#include <PString.h>
+//#include <PString.h>
 #include <Wire.h>           // required for I2C communication with Gas Gauge
 #include <DS2764.h>
 
@@ -213,17 +216,17 @@
 //******************************************************************************
 //** Declare Global Variables
 //******************************************************************************
-      char gszLineBuf[LINEBUFSIZE];
-      char gszTempBuf[TEMPBUFSIZE];
-      char gszCurrBuf[CURRENTBUFSIZE];
-      char gszPctBuf[TEMPBUFSIZE];
-      char gszVoltBuf[VOLTBUFSIZE];
+//      char gszLineBuf[LINEBUFSIZE];
+//      char gszTempBuf[TEMPBUFSIZE];
+//      char gszCurrBuf[CURRENTBUFSIZE];
+//      char gszPctBuf[TEMPBUFSIZE];
+//      char gszVoltBuf[VOLTBUFSIZE];
       
-  PString  pstrLine   (gszLineBuf, LINEBUFSIZE);
-  PString  pstrTemp   (gszTempBuf, TEMPBUFSIZE);
-  PString  pstrCurrent(gszCurrBuf, CURRENTBUFSIZE);
-  PString  pstrPercent(gszPctBuf,  TEMPBUFSIZE);
-  PString  pstrVolts  (gszVoltBuf, VOLTBUFSIZE);
+//  PString  pstrLine   (gszLineBuf, LINEBUFSIZE);
+//  PString  pstrTemp   (gszTempBuf, TEMPBUFSIZE);
+//  PString  pstrCurrent(gszCurrBuf, CURRENTBUFSIZE);
+//  PString  pstrPercent(gszPctBuf,  TEMPBUFSIZE);
+//  PString  pstrVolts  (gszVoltBuf, VOLTBUFSIZE);
       
 // a bitmap of a degree symbol
 static unsigned char __attribute__ ((progmem)) degree_bmp[]={0x06, 0x09, 0x09, 0x06, 0x00};
@@ -348,10 +351,10 @@ void setup() {
     Serial.begin(9600);          // start serial communication at 9600bps
     delay(500);
     
-    fillBuffer(gszLineBuf, LINEBUFSIZE, '\0');
-    fillBuffer(gszTempBuf, TEMPBUFSIZE, '\0');
-    fillBuffer(gszCurrBuf, CURRENTBUFSIZE,  '\0');
-    fillBuffer(gszVoltBuf, VOLTBUFSIZE, '\0');
+    //fillBuffer(gszLineBuf, LINEBUFSIZE, '\0');
+    //fillBuffer(gszTempBuf, TEMPBUFSIZE, '\0');
+    //fillBuffer(gszCurrBuf, CURRENTBUFSIZE,  '\0');
+    //fillBuffer(gszVoltBuf, VOLTBUFSIZE, '\0');
 
     Wire.begin();        // join i2c bus (address optional for master)
     
@@ -363,15 +366,9 @@ void setup() {
     // set up the LCD's number of rows and columns:
     lcd.begin(NUMCOLS, NUMROWS);
     lcd.createChar(0, degree);
+    
 #elif DISPLAY_TYPE == NOKIA_LCD
     nokia.init();
-    
-    // turn all the pixels on (a handy test)
-    nokia.command(PCD8544_DISPLAYCONTROL | PCD8544_DISPLAYALLON);
-    delay(500);
-    // back to normal
-    nokia.command(PCD8544_DISPLAYCONTROL | PCD8544_DISPLAYNORMAL);
-    delay(500);
     nokia.clear();
     
 #elif DISPLAY_TYPE == TFT_LCD_2_8_TOUCH_SHIELD
@@ -499,7 +496,7 @@ void DisplayData() {
     char  szHi[]      = "HI";
     char  szLo[]      = "LO";
     char  szOk[]      = "Ok";
-    char  szOn[]      = "On";
+    char  szOn[]      = "On ";
     char  szOff[]     = "Off";
     char* szVoltStat  = NULL;
     char* szChrgStat  = NULL;
@@ -508,10 +505,10 @@ void DisplayData() {
     char* szDChrgOn   = NULL;
 
     
-    pstrTemp.begin();
-    pstrCurrent.begin();
-    pstrPercent.begin();
-    pstrVolts.begin();
+    //pstrTemp.begin();
+    //pstrCurrent.begin();
+    //pstrPercent.begin();
+    //pstrVolts.begin();
     
     if(gasGauge.dsGetCurrent() < -999.9) {
         iPrecision = 0;   
@@ -520,10 +517,10 @@ void DisplayData() {
         iPrecision = 1;
     }
     
-    pstrCurrent.print(gasGauge.dsGetCurrent(),               iPrecision);    
-    pstrTemp.print   (gasGauge.dsGetTempF(),                          1);        
-    pstrPercent.print(gasGauge.dsGetBatteryCapacityPercent(),         1);
-    pstrVolts.print ((gasGauge.dsGetBatteryVoltage() / 1000.0),       2);
+    //pstrCurrent.print(gasGauge.dsGetCurrent(),               iPrecision);    
+    //pstrTemp.print   (gasGauge.dsGetTempF(),                          1);        
+    //pstrPercent.print(gasGauge.dsGetBatteryCapacityPercent(),         1);
+    //pstrVolts.print ((gasGauge.dsGetBatteryVoltage() / 1000.0),       2);
     
     // set Voltage Status
     i = gasGauge.dsGetVoltageStatus();
@@ -641,7 +638,7 @@ void DisplayData() {
 
     //Serial.println("In Display Data for Nokia Screen");
     
-    pstrLine.begin();
+    //pstrLine.begin();
     nokia.clear();    // clear the screen
 
     //Serial.println("got past Nokia.clear");
@@ -659,12 +656,43 @@ void DisplayData() {
     //-700.0mA 3.78V1000mAh ---.-%Voltage     OKCharge  Off OKDCharge Off OKTemp:  102.6oF
 
 
-    pstrLine.format("%6smA%5sV%4dmAh %5s%%Voltage     %2sCharge  %3s %2sDcharge %3s %2sTemp:  %5s F", 
-                    gszCurrBuf, gszVoltBuf, gasGauge.dsGetAccumulatedCurrent(), gszPctBuf, szVoltStat, szChrgOn, szChrgStat, szDChrgOn, szDChrgStat, gszTempBuf);
+    //pstrLine.format("%6smA%5sV%4dmAh %5s%%Voltage     %2sCharge  %3s %2sDcharge %3s %2sTemp:  %5s F", 
+    //                gszCurrBuf, gszVoltBuf, gasGauge.dsGetAccumulatedCurrent(), gszPctBuf, szVoltStat, szChrgOn, szChrgStat, szDChrgOn, szDChrgStat, gszTempBuf);
                     
-    nokia.drawstring(0, 0, gszLineBuf);
-    //Serial.println(gszLineBuf);
+    //nokia.drawstring(0, 0, gszLineBuf);
+    // old debug lineSerial.println(gszLineBuf);
     
+    // Current Pad
+    // >= 0  < 10    pad 3
+    // >= 10 < 100   pad 2
+    // >= 100 < 1000 pad 1
+    // 
+    
+    printPaddedFloat(gasGauge.dsGetCurrent(), 6, iPrecision);
+    nokia.print("mA");
+    printPaddedFloat((gasGauge.dsGetBatteryVoltage() / 1000.0), 5, 2);
+    nokia.print("V");
+    
+    printPaddedFloat(gasGauge.dsGetAccumulatedCurrent(), 4, 0);
+    nokia.print("mAh ");
+    printPaddedFloat(gasGauge.dsGetBatteryCapacityPercent(), 5, 1);
+    nokia.print("%Voltage     ");
+    nokia.print(szVoltStat);
+    
+    nokia.print("Charge  ");
+    nokia.print(szChrgOn);
+    nokia.print(" ");
+    nokia.print(szChrgStat);
+    
+    nokia.print("DCharge ");
+    nokia.print(szDChrgOn);
+    nokia.print(" ");
+    nokia.print(szDChrgStat);
+    
+    nokia.print("Temp:  ");
+    printPaddedFloat(gasGauge.dsGetTempF(), 5, 1);
+    nokia.print(" F");
+        
     if (!(gasGauge.dsIsChargeEnabled())) {
         // Charging is disabled 
         nokia.drawline(0, 3*8 + 4, 7*6, 3*8 + 4, BLACK); 
@@ -906,6 +934,50 @@ static void handleInput (char c) {
         showHelp();
 }
 
+
+
+
+void printPaddedFloat(float afVal, int aiWidth, int aiPrecision) {
+    // pad = width - signwidth - sigdig - precision - decimalwidth
+    int signWidth    = 0;
+    int decimalWidth = 0;
+    int significantDigits = 0;
+    int padWidth = 0;
+    int i = 0;
+
+    if(afVal < 0.0) {
+        signWidth = 1;
+    }    
+    
+    if(aiPrecision > 0) {
+        decimalWidth = 1;
+    }
+    
+    if(abs(afVal) < 10.0) {
+        significantDigits = 1;
+    }
+    else if(abs(afVal) < 100.0) {
+        significantDigits = 2;
+    }
+    else if(abs(afVal) < 1000.0) {
+        significantDigits = 3;
+    }
+    else if(abs(afVal) < 10000.0) {
+        significantDigits = 4;
+    }
+    else {
+        significantDigits = 5;
+    }
+    
+    padWidth = aiWidth - signWidth - significantDigits - aiPrecision - decimalWidth;
+    
+    for(i = 1; i <= padWidth; i++) {
+        nokia.print(" ");
+    }
+    
+    nokia.print(afVal, aiPrecision);
+    
+}
 
 
 
