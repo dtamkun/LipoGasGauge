@@ -48,6 +48,9 @@
 //                  DMT 09/17/2011 V2.3.0 Adjusting to use newer version of PCD8554 Library that
 //                                        inherits from the Print Class.  Eliminating use of
 //                                        PString class to reduce memory requirements.
+//                  DMT 04/08/2012 V2.4.0 Arduino 1.0 compatible, added additional function to
+//                                        refresh battery capacity, added a #define to set the
+//                                        refresh interval, which is now 500 instead of 1000
 //
 //    Compiliation: Arduino IDE
 //
