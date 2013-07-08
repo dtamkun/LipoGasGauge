@@ -51,6 +51,9 @@
 //                  DMT 04/08/2012 V2.4.0 Arduino 1.0 compatible, added additional function to
 //                                        refresh battery capacity, added a #define to set the
 //                                        refresh interval, which is now 500 instead of 1000
+//                  DMT 07/07/2013        Changing PCD8544 library to use Adafruit_PCD8544 library
+//                                        which also must import the Adafruit_GFX library.  
+//                                        Now, there's not enough memory to run an an UNO.
 //
 //    Compiliation: Arduino IDE
 //
@@ -198,13 +201,14 @@
 #include <DS2764.h>
 
 #if DISPLAY_TYPE == SMALL_LCD || DISPLAY_TYPE == BIG_LCD
-#include <LiquidCrystal.h>
+    #include <LiquidCrystal.h>
 #elif DISPLAY_TYPE == NOKIA_LCD
-#include <PCD8544.h>
+    #include <Adafruit_GFX.h>
+    #include <Adafruit_PCD8544.h>
 #elif DISPLAY_TYPE == TFT_LCD_2_8_TOUCH_SHIELD
-#include <SD.h>
-#include <SPI.h>
-#include "TFTLCD.h"
+    #include <SD.h>
+    #include <SPI.h>
+    #include "TFTLCD.h"
 #endif
 
 
@@ -297,7 +301,7 @@ LiquidCrystal lcd(3, 2, 4);
 #elif DISPLAY_TYPE == NOKIA_LCD
 //
 //PCD8544(int8_t SCLK, int8_t DIN, int8_t DC, int8_t CS, int8_t RST)
-PCD8544 nokia = PCD8544(7, 6, 5, 4, 3);
+Adafruit_PCD8544 nokia = Adafruit_PCD8544(7, 6, 5, 4, 3);
 //PCD8544 nokia = PCD8544(2, 3, 5, 6, 7);
 //PCD8544 nokia = PCD8544(9, 8, 7, 6, 5);
 
@@ -376,8 +380,10 @@ void setup() {
     lcd.createChar(0, degree);
     
 #elif DISPLAY_TYPE == NOKIA_LCD
-    nokia.init();
-    nokia.clear();
+    //nokia.init();
+    nokia.begin();
+    //nokia.clear();
+    nokia.clearDisplay();
     
 #elif DISPLAY_TYPE == TFT_LCD_2_8_TOUCH_SHIELD
 
@@ -652,7 +658,7 @@ void DisplayData() {
     //Serial.println("In Display Data for Nokia Screen");
     
     //pstrLine.begin();
-    nokia.clear();    // clear the screen
+    nokia.clearDisplay();    // clear the screen
 
     //Serial.println("got past Nokia.clear");
     
@@ -708,15 +714,15 @@ void DisplayData() {
         
     if (!(gasGauge.dsIsChargeEnabled())) {
         // Charging is disabled 
-        nokia.drawline(0, 3*8 + 4, 7*6, 3*8 + 4, BLACK); 
+        nokia.drawLine(0, 3*8 + 4, 7*6, 3*8 + 4, BLACK); 
     }
     
     if (!(gasGauge.dsIsDischargeEnabled())) {
         //Discharging is disabled 
-        nokia.drawline(0, 4*8 + 4, 7*6, 4*8 + 4, BLACK); 
+        nokia.drawLine(0, 4*8 + 4, 7*6, 4*8 + 4, BLACK); 
     }
     
-    nokia.drawbitmap(72, 40, degree_bmp, 5, 8, BLACK);
+    nokia.drawBitmap(72, 40, degree_bmp, 5, 8, BLACK);
     
     nokia.display();
 
