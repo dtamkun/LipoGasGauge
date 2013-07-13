@@ -54,6 +54,11 @@
 //                  DMT 07/07/2013        Changing PCD8544 library to use Adafruit_PCD8544 library
 //                                        which also must import the Adafruit_GFX library.  
 //                                        Now, there's not enough memory to run an an UNO.
+//                  DMT 07/13/2013        Works with Adafruit 1.8" TFT Shield with MicroSD and Joystick
+//                                        and the newer libraries, but there's not enough memory to
+//                                        include the SD library and try to log data.  Have
+//                                        reworked the Bitmap encoding for the degree symbol to 
+//                                        work with the revised logic in the newer Adafruit_GFX library
 //
 //    Compiliation: Arduino IDE
 //
@@ -106,6 +111,16 @@
 //                  Purple         D7              SCLK*
 //                                                 * Level shifted
 //
+//                  Adafruit 1.8" TFT Shield with Micro SD & Joystick
+//                  ---------------------------------------------------
+//                  D8                                DC                   Data/Command for TFT                                               
+//                  D10                               SS                   Hardware SPI CS/SS for TFT                                         
+//                  D11                               MOSI                 Hardware SPI MOSI                                                  
+//                  D13                               SCK                  Hardware SPI SCK                                                   
+//                  A3                                Joystick             Used to read Joystick                                              
+//                  D4                                SS                   SD Card Chip/Slave Select                                          
+//                  D0                                Reset                Reset for TFT?                                                     
+//
 //
 //                  Gas Gauge Chip Proto Board - Maxim DS2764+025
 //                  ---------------------------------------------------
@@ -148,10 +163,11 @@
 #define TFT_LCD_2_8_TOUCH_SHIELD    6    // use 2.8" TFT LCD Touch Shield Display with SD Card
 
 //** Choose one of these displays
-#define DISPLAY_TYPE   NOKIA_LCD
+//#define DISPLAY_TYPE   NOKIA_LCD
 //#define DISPLAY_TYPE   BIG_LCD
 //#define DISPLAY_TYPE   0
-//#define DISPLAY_TYPE    TFT_LCD_2_8_TOUCH_SHIELD    
+//#define DISPLAY_TYPE    TFT_LCD_2_8_TOUCH_SHIELD
+#define DISPLAY_TYPE   TFT_LCD_1_8
 
 
 #if DISPLAY_TYPE == SMALL_LCD
@@ -165,6 +181,11 @@
 #define LINEBUFSIZE    NUMCOLS + 1
 
 #elif DISPLAY_TYPE == NOKIA_LCD || DISPLAY_TYPE == TFT_LCD_2_8_TOUCH_SHIELD
+#define NUMCOLS        14    // number of LCD Columns
+#define NUMROWS         6    // number of LCD Lines
+#define LINEBUFSIZE    (NUMCOLS * NUMROWS) + 1    // 6 lines of 14 characters plus trailing NULL
+
+#elif DISPLAY_TYPE == TFT_LCD_1_8
 #define NUMCOLS        14    // number of LCD Columns
 #define NUMROWS         6    // number of LCD Lines
 #define LINEBUFSIZE    (NUMCOLS * NUMROWS) + 1    // 6 lines of 14 characters plus trailing NULL
@@ -205,6 +226,13 @@
 #elif DISPLAY_TYPE == NOKIA_LCD
     #include <Adafruit_GFX.h>
     #include <Adafruit_PCD8544.h>
+    
+#elif DISPLAY_TYPE == TFT_LCD_1_8
+    #include <Adafruit_GFX.h>    // Core graphics library
+    #include <Adafruit_ST7735.h> // Hardware-specific library
+    //#include <SD.h>
+    #include <SPI.h>
+
 #elif DISPLAY_TYPE == TFT_LCD_2_8_TOUCH_SHIELD
     #include <SD.h>
     #include <SPI.h>
@@ -239,7 +267,17 @@
 //  PString  pstrVolts  (gszVoltBuf, VOLTBUFSIZE);
       
 // a bitmap of a degree symbol
-static unsigned char __attribute__ ((progmem)) degree_bmp[]={0x06, 0x09, 0x09, 0x06, 0x00};
+//static unsigned char __attribute__ ((progmem)) degree_bmp[]={0x06, 0x09, 0x09, 0x06, 0x00};
+// in newer library, the bitmap encoding format changed.
+static unsigned char PROGMEM degree_bmp[] =
+{ B01100000, 
+  B10010000,
+  B10010000, 
+  B01100000,
+  B00000000,
+  B00000000,
+  B00000000,
+  B00000000 };
 
 const char helpText[]PROGMEM =
     "\n"
@@ -251,6 +289,7 @@ const char helpText[]PROGMEM =
     "               1200 mAh." "\n"
     "     <n> s   - Turn Sleep Mode ON or OFF.  Entering '1 s' Enables Sleep Mode" "\n"
     "               while '0 s' disables Sleep Mode" "\n"
+    "         d   - Displays current info" "\n"
     "         h   - Redisplays this menu" "\n"
     "         x   - Clears the input buffer for this menu." "\n"
 ;
@@ -278,62 +317,74 @@ const char helpText[]PROGMEM =
     
 
 DS2764 gasGauge     = DS2764();
-int    giDoIt       = 0;
+//int    giDoIt       = 0;
 int    giInputVal   = 0;
 
 
 
 
 #if  DISPLAY_TYPE == SMALL_LCD || DISPLAY_TYPE == BIG_LCD
-// initialize the library with the numbers of the interface pins
-// for plain connection
-//LiquidCrystal lcd(2, 3, 4, 5, 6, 7 );
+    // initialize the library with the numbers of the interface pins
+    // for plain connection
+    //LiquidCrystal lcd(2, 3, 4, 5, 6, 7 );
 
-// for i2C
-//LiquidCrystal lcd(0);
+    // for i2C
+    //LiquidCrystal lcd(0);
 
-// Connect via SPI. Data pin is #3, Clock is #2 and Latch is #4
-// make degree symbol for LCD
-uint8_t degree[8]  = {140,146,146,140,128,128,128,128};
+    // Connect via SPI. Data pin is #3, Clock is #2 and Latch is #4
+    // make degree symbol for LCD
+    uint8_t degree[8]  = {140,146,146,140,128,128,128,128};
 
-LiquidCrystal lcd(3, 2, 4);
+    LiquidCrystal lcd(3, 2, 4);
 
 #elif DISPLAY_TYPE == NOKIA_LCD
-//
-//PCD8544(int8_t SCLK, int8_t DIN, int8_t DC, int8_t CS, int8_t RST)
-Adafruit_PCD8544 nokia = Adafruit_PCD8544(7, 6, 5, 4, 3);
-//PCD8544 nokia = PCD8544(2, 3, 5, 6, 7);
-//PCD8544 nokia = PCD8544(9, 8, 7, 6, 5);
+    //
+    //PCD8544(int8_t SCLK, int8_t DIN, int8_t DC, int8_t CS, int8_t RST)
+    Adafruit_PCD8544 nokia = Adafruit_PCD8544(7, 6, 5, 4, 3);
+    //PCD8544 nokia = PCD8544(2, 3, 5, 6, 7);
+    //PCD8544 nokia = PCD8544(9, 8, 7, 6, 5);
+
+#elif DISPLAY_TYPE == TFT_LCD_1_8
+    #define SCLK 13
+    #define MOSI 11
+    #define CS   10
+    #define DC   8
+    //#define SDCS 4
+    #define RST  0
+    #define JOY  A3
+    
+    Adafruit_ST7735 tft = Adafruit_ST7735(CS, DC, RST);
+    //char       filename[]                 = "BATLOG00.CSV";
+    //File       logfile;                   // the logging file
 
 #elif DISPLAY_TYPE == TFT_LCD_2_8_TOUCH_SHIELD
 
-// These are the pins as connected in the shield
-#define LCD_CS A3    // Chip Select goes to Analog 3
-#define LCD_CD A2    // Command/Data goes to Analog 2
-#define LCD_WR A1    // LCD Write goes to Analog 1
-#define LCD_RD A0    // LCD Read goes to Analog 0
+    // These are the pins as connected in the shield
+    #define LCD_CS A3    // Chip Select goes to Analog 3
+    #define LCD_CD A2    // Command/Data goes to Analog 2
+    #define LCD_WR A1    // LCD Write goes to Analog 1
+    #define LCD_RD A0    // LCD Read goes to Analog 0
 
-// The chip select pin for the SD card on the shield
-#define SD_CS 5 
-// In the SD card, place 24 bit color BMP files (be sure they are 24-bit!)
-// There are examples in the sketch folder
+    // The chip select pin for the SD card on the shield
+    #define SD_CS 5 
+    // In the SD card, place 24 bit color BMP files (be sure they are 24-bit!)
+    // There are examples in the sketch folder
 
-// our TFT wiring
-TFTLCD tft(LCD_CS, LCD_CD, LCD_WR, LCD_RD, 0);
+    // our TFT wiring
+    TFTLCD tft(LCD_CS, LCD_CD, LCD_WR, LCD_RD, 0);
 
-// the file itself
-//File bmpFile;
+    // the file itself
+    //File bmpFile;
 
-// information we extract about the bitmap file
-int bmpWidth, bmpHeight;
-uint8_t bmpDepth, bmpImageoffset;
+    // information we extract about the bitmap file
+    int bmpWidth, bmpHeight;
+    uint8_t bmpDepth, bmpImageoffset;
 
-/************* HARDWARE SPI ENABLE/DISABLE */
-// we want to reuse the pins for the SD card and the TFT - to save 2 pins. this means we have to
-// enable the SPI hardware interface whenever accessing the SD card and then disable it when done
-int8_t saved_spimode;
-
-
+    /************* HARDWARE SPI ENABLE/DISABLE */
+    // we want to reuse the pins for the SD card and the TFT - to save 2 pins. this means we have to
+    // enable the SPI hardware interface whenever accessing the SD card and then disable it when done
+    int8_t saved_spimode;
+    
 #endif
 
 
@@ -361,6 +412,11 @@ void setup() {
     Serial.begin(9600);          // start serial communication at 9600bps
     delay(500);
     
+    Serial.print(F("Free Memory: "));
+    //Serial.println(memoryFree(), DEC);
+    Serial.println(freeRam());
+
+    
     //fillBuffer(gszLineBuf, LINEBUFSIZE, '\0');
     //fillBuffer(gszTempBuf, TEMPBUFSIZE, '\0');
     //fillBuffer(gszCurrBuf, CURRENTBUFSIZE,  '\0');
@@ -384,6 +440,63 @@ void setup() {
     nokia.begin();
     //nokia.clear();
     nokia.clearDisplay();
+    
+#elif DISPLAY_TYPE == TFT_LCD_1_8
+    tft.initR(INITR_REDTAB);   // initialize a ST7735R chip, red tab
+    
+    // 0 has the top on the side opposite the joystick in portrait mode
+    //
+    // 1 has the right on the side by the joystick in landscape mode
+    //
+    // 2 has the top on the side by the joystick in portrait mode
+    //
+    // 3 has the left on the side by joystick in landscape mode
+    tft.fillScreen(ST7735_BLACK);
+    
+    tft.setRotation(3);
+    
+    tft.setTextColor(ST7735_GREEN, ST7735_BLACK);
+    
+    tft.setTextWrap(true);
+    
+    // at textsize 1, we get 26 columns and 16 rows
+    // at textsize 2, we get 13 columns and 8 rows
+    tft.setTextSize(1);
+    
+    tft.drawBitmap(72, 40, degree_bmp, 5, 8, ST7735_GREEN);
+    tft.setCursor(13*6, 5*8);
+    tft.print(F("F"));
+    
+    //Serial.print(F("Initializing SD card..."));
+    /*
+    if (!SD.begin(SDCS)) {
+      Serial.println(F("failed!"));
+      return;
+    }
+    Serial.println(F("SD OK!"));
+    */
+    // create a new file
+    //char filename[] = "BATLOG00.CSV";
+    /*for (uint8_t i = 0; i < 100; i++) {
+      filename[6] = i/10 + '0';
+      filename[7] = i%10 + '0';
+      if (! SD.exists(filename)) {
+        // only open a new file if it doesn't exist
+        //logfile = SD.open(filename, FILE_WRITE); 
+        break;  // leave the loop!
+      }
+    }*/
+  
+    //if (! logfile) {
+    //  error(F("couldnt create file"));
+    //}
+  
+    //Serial.print(F("Logging to: ")); 
+    //Serial.println(filename);
+
+    //logfile.println(F("timestamp,current(mAh),voltage(mV),acc curr(mAh),% of Cap,Temp,VoltStat,ChrgEnabled,ChrgOn,ChrgStat,DChrgEnabled,DChrgOn,DChrgStat"));    
+
+    
     
 #elif DISPLAY_TYPE == TFT_LCD_2_8_TOUCH_SHIELD
 
@@ -488,6 +601,46 @@ void loop() {
 
 
 
+// function to return the amount of free RAM
+/*
+int memoryFree() {
+    int freeValue;
+
+    if((int)__brkval == 0)
+        freeValue = ((int)&freeValue) - ((int)&__bss_end);
+    else
+        freeValue = ((int)&freeValue) - ((int)__brkval);
+        
+    return freeValue;
+}
+*/
+
+
+
+
+//------------------------------------------------------------------------------
+// freeRam
+//
+// Returns the amount of free SRAM (in bytes, I think).  an UNO has only 2K of
+// SRAM for storing global variables, dynamically allocated memory (the heap),
+// and stack space for storing parameters when functions are called.  
+//
+// __brkval is a pointer to the end of the heap.  
+//
+// Arguments:
+//     None
+//
+// Return Value:
+//     bytes of SRAM free
+//------------------------------------------------------------------------------
+int freeRam () {
+  extern int __heap_start, *__brkval; 
+  int v; 
+  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval); 
+}
+
+
+
 
 #if DISPLAY_TYPE == TFT_LCD_2_8_TOUCH_SHIELD
 void disableSPI(void) {
@@ -510,8 +663,8 @@ void enableSPI(void) {
 void DisplayData() {
   
     //Serial.println("Entering DisplayData()");
-    int   i           = 0;
-    int   iPrecision  = 1;
+    uint8_t   i           = 0;
+    uint8_t   iPrecision  = 1;
     char  szHi[]      = "HI";
     char  szLo[]      = "LO";
     char  szOk[]      = "Ok";
@@ -727,6 +880,87 @@ void DisplayData() {
     nokia.display();
 
 
+#elif DISPLAY_TYPE == TFT_LCD_1_8
+
+    tft.setCursor(0, 0);
+    
+    
+    
+    //01234567890123
+    //999.9mA 110.5o
+    //2180mAh  99.9%
+    //Voltage     OK
+    //Charging    OK
+    //Discharge   OK
+    
+    //123456789012341234567890123412345678901234123456789012341234567890123412345678901234
+    //--------------==============--------------==============--------------==============
+    //-700.0mA 3.78V1000mAh ---.-%Voltage     OKCharge  Off OKDCharge Off OKTemp:  102.6oF
+
+
+    //pstrLine.format("%6smA%5sV%4dmAh %5s%%Voltage     %2sCharge  %3s %2sDcharge %3s %2sTemp:  %5s F", 
+    //                gszCurrBuf, gszVoltBuf, gasGauge.dsGetAccumulatedCurrent(), gszPctBuf, szVoltStat, szChrgOn, szChrgStat, szDChrgOn, szDChrgStat, gszTempBuf);
+                    
+    //nokia.drawstring(0, 0, gszLineBuf);
+    // old debug lineSerial.println(gszLineBuf);
+    
+    // Current Pad
+    // >= 0  < 10    pad 3
+    // >= 10 < 100   pad 2
+    // >= 100 < 1000 pad 1
+    // 
+    
+    printPaddedFloat2(gasGauge.dsGetCurrent(), 6, iPrecision);
+    tft.print(F("mA"));
+    printPaddedFloat2((gasGauge.dsGetBatteryVoltage() / 1000.0), 5, 2);
+    tft.print(F("V"));
+
+    tft.setCursor(0, 1*8);    
+    printPaddedFloat2(gasGauge.dsGetAccumulatedCurrent(), 4, 0);
+    tft.print(F("mAh "));
+    printPaddedFloat2(gasGauge.dsGetBatteryCapacityPercent(), 5, 1);
+    tft.print(F("%"));
+    
+    tft.setCursor(0, 2*8);
+    tft.print(F("Voltage     "));
+    tft.print(szVoltStat);
+    
+    tft.setCursor(0, 3*8);
+    tft.print(F("Charge  "));
+    tft.print(szChrgOn);
+    tft.print(" ");
+    tft.print(szChrgStat);
+    
+    tft.setCursor(0, 4*8);
+    tft.print(F("DCharge "));
+    tft.print(szDChrgOn);
+    tft.print(" ");
+    tft.print(szDChrgStat);
+    
+    tft.setCursor(0, 5*8);
+    tft.print(F("Temp:  "));
+    printPaddedFloat2(gasGauge.dsGetTempF(), 5, 1);
+    //tft.print(F(" F"));
+        
+    //if (!(gasGauge.dsIsChargeEnabled())) {
+    if (!(gasGauge.dsIsChargeOn())) {
+        // Charging is disabled 
+        tft.drawLine(0, 3*8 + 4, 7*6, 3*8 + 4, ST7735_RED); 
+    }
+    
+    //if (!(gasGauge.dsIsDischargeEnabled())) {
+    if (!(gasGauge.dsIsDischargeOn())) {
+        //Discharging is disabled 
+        tft.drawLine(0, 4*8 + 4, 7*6, 4*8 + 4, ST7735_RED); 
+    }
+    
+    //tft.drawBitmap(72, 40, degree_bmp, 5, 8, ST7735_GREEN);
+    
+    //tft.display();
+
+
+
+
 #elif DISPLAY_TYPE == TFT_LCD_2_8_TOUCH_SHIELD
 
     tft.fillScreen(BLACK);
@@ -798,28 +1032,28 @@ static void handleInput (char c) {
                 showHelp();
                 break;
             case 'c': // setBatteryCapacity
-                Serial.print("Setting Battery Capacity to ");
+                Serial.print(F("Setting Battery Capacity to "));
                 Serial.print(giInputVal, DEC);
-                Serial.println(" mAh...");
+                Serial.println(F(" mAh..."));
                 gasGauge.dsSetBatteryCapacity(giInputVal);
                 delay(100);
                 
                 
                 
-                Serial.print("Battery Capacity Set now set to ");
+                Serial.print(F("Battery Capacity Set now set to "));
                 Serial.print(gasGauge.dsGetBatteryCapacity(), DEC);
-                Serial.println(" mAh.");
+                Serial.println(F(" mAh."));
                 
                 giInputVal = 0;
                 break;
             case 'a': // set Accumulated Current
-                Serial.print("Setting Accumulated Current to ");
+                Serial.print(F("Setting Accumulated Current to "));
                 Serial.print(giInputVal, DEC);
-                Serial.println(" mAh...");
+                Serial.println(F(" mAh..."));
                 
                 gasGauge.dsSetAccumCurrent(giInputVal);
                 
-                Serial.println("Accumulated Current set.");
+                Serial.println(F("Accumulated Current set."));
              
                 giInputVal = 0;
                 break;
@@ -830,7 +1064,7 @@ static void handleInput (char c) {
                 else {
                     gasGauge.dsDisableSleep();
                 }                
-                Serial.println("Sleep Mode Updated.");
+                Serial.println(F("Sleep Mode Updated."));
                 giInputVal = 0;
                 break;
  /*               
@@ -857,89 +1091,90 @@ static void handleInput (char c) {
             case 'o': // This will be a place to set the Current Offset.
                 giInputVal = 0;
                 break;
+*/                
             case 'd': // display giInputVal
                 // retrieve protection and status settings again
                 gasGauge.dsRefresh();
                 delay(100);
-                Serial.println("Current Values:");
-                Serial.print  ("                 Volts: ");
+                Serial.println(F("Current Values:"));
+                Serial.print  (F("                 Volts: "));
                 Serial.println(gasGauge.dsGetBatteryVoltage(), DEC);
-                Serial.print  ("               Current: ");
+                Serial.print  (F("               Current: "));
                 Serial.println(gasGauge.dsGetCurrent(), 1);
-                Serial.print  ("   Accumulated Current: ");
+                Serial.print  (F("   Accumulated Current: "));
                 Serial.println(gasGauge.dsGetAccumulatedCurrent(), DEC);
-                Serial.print  ("                Temp F: ");
+                Serial.print  (F("                Temp F: "));
                 Serial.println(gasGauge.dsGetTempF(), 1);
-                Serial.print  ("          Power On Ind: ");
+                Serial.print  (F("          Power On Ind: "));
                 if(gasGauge.dsIsPowerOn()) {
-                    Serial.println("ON");
+                    Serial.println(F("ON"));
                 }
                 else {
-                    Serial.println("Off");
+                    Serial.println(F("Off"));
                 }
-                Serial.print  ("      Battery Capacity: ");
+                Serial.print  (F("      Battery Capacity: "));
                 Serial.println(gasGauge.dsGetBatteryCapacity(), DEC);
-                Serial.print  ("            Sleep Mode: ");
+                Serial.print  (F("            Sleep Mode: "));
                 if(gasGauge.dsIsSleepEnabled()) {
-                    Serial.println("Enabled");
+                    Serial.println(F("Enabled"));
                 }
                 else {
-                    Serial.println("Disabled");
+                    Serial.println(F("Disabled"));
                 }
-                Serial.print  ("        Voltage Status: ");
+                Serial.print  (F("        Voltage Status: "));
                 Serial.println(gasGauge.dsGetVoltageStatus(), DEC);
                 
                 //              1234567890123456789012v
-                Serial.print  ("         Charge Status: ");
+                Serial.print  (F("         Charge Status: "));
                 Serial.println(gasGauge.dsGetChargeStatus(), DEC);
                 
                  
                 if(gasGauge.dsIsChargeOn()) { 
                     //              1234567890123456789012v
-                    Serial.println("           Charging is: ON");
+                    Serial.println(F("           Charging is: ON"));
                 }
                 else {
-                    Serial.println("           Charging is: OFF");
+                    Serial.println(F("           Charging is: OFF"));
                 }
                 
                 if(gasGauge.dsIsChargeEnabled()) { 
-                    Serial.println("           Charging is: Enabled");
+                    Serial.println(F("           Charging is: Enabled"));
                 }
                 else {
-                    Serial.println("           Charging is: Disabled");
+                    Serial.println(F("           Charging is: Disabled"));
                 }
                 
                 //              1234567890123456789012v
-                Serial.print  ("      Discharge Status: ");
+                Serial.print  (F("      Discharge Status: "));
                 Serial.println(gasGauge.dsGetDischargeStatus(), DEC);
 
                if(gasGauge.dsIsDischargeOn()) { 
                     //              1234567890123456789012v
-                    Serial.println("        Discharging is: ON");
+                    Serial.println(F("        Discharging is: ON"));
                 }
                 else {
-                    Serial.println("        Discharging is: OFF");
+                    Serial.println(F("        Discharging is: OFF"));
                 }
                 
                 if(gasGauge.dsIsDischargeEnabled()) { 
-                    Serial.println("        Discharging is: Enabled");
+                    Serial.println(F("        Discharging is: Enabled"));
                 }
                 else {
-                    Serial.println("        Discharging is: Disabled");
+                    Serial.println(F("        Discharging is: Disabled"));
                 }
  
                 if(gasGauge.dsIsPowerOn()) {
-                    Serial.println("              Power is: ON");
+                    Serial.println(F("              Power is: ON"));
                 }
                 else {
-                    Serial.println("              Power is: OFF");
+                    Serial.println(F("              Power is: OFF"));
                 }
 
                 //              1234567890123456789012v
-                Serial.print  ("  Numeric Input Buffer: ");
+                Serial.print  (F("  Numeric Input Buffer: "));
                 Serial.println(giInputVal, DEC);
                 break;
-                
+ /*               
             case 'h': // display menu again
                 showHelp();
                 break;
@@ -955,6 +1190,7 @@ static void handleInput (char c) {
 
 
 
+#if DISPLAY_TYPE == NOKIA_LCD
 
 void printPaddedFloat(float afVal, int aiWidth, int aiPrecision) {
     // pad = width - signwidth - sigdig - precision - decimalwidth
@@ -998,8 +1234,60 @@ void printPaddedFloat(float afVal, int aiWidth, int aiPrecision) {
     
 }
 
+#endif
 
 
+#if DISPLAY_TYPE == TFT_LCD_1_8
+
+void printPaddedFloat2(float afVal, int aiWidth, int aiPrecision) {
+    // pad = width - signwidth - sigdig - precision - decimalwidth
+    int signWidth    = 0;
+    int decimalWidth = 0;
+    int significantDigits = 0;
+    int padWidth = 0;
+    int i = 0;
+
+    if(afVal < 0.0) {
+        signWidth = 1;
+    }    
+    
+    if(aiPrecision > 0) {
+        decimalWidth = 1;
+    }
+    
+    if(abs(afVal) < 10.0) {
+        significantDigits = 1;
+    }
+    else if(abs(afVal) < 100.0) {
+        significantDigits = 2;
+    }
+    else if(abs(afVal) < 1000.0) {
+        significantDigits = 3;
+    }
+    else if(abs(afVal) < 10000.0) {
+        significantDigits = 4;
+    }
+    else {
+        significantDigits = 5;
+    }
+    
+    padWidth = aiWidth - signWidth - significantDigits - aiPrecision - decimalWidth;
+    
+    for(i = 1; i <= padWidth; i++) {
+        tft.print(" ");
+    }
+    
+    tft.print(afVal, aiPrecision);
+    
+}
+
+#endif
+
+
+
+// Used to read a string stored in Flash Memory (aka PROGMEM) out one 
+// byte at a time using a special function that can read from Flash
+// and write it out to the Serial port.
 static void showString (const char* s) {
     for (;;) {
         char c = pgm_read_byte(s++);
